@@ -1,0 +1,11 @@
+[tasks.lint]
+run = ["uv run ruff check .", "uv run pyright"]
+
+[tasks.format]
+run = "uv run ruff format ."
+
+[tasks.test]
+run = "uv run pytest"
+
+[tasks.dev]
+run = "uv run flask run"

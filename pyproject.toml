@@ -1,0 +1,21 @@
+[project]
+name = "velo-tracker"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "flask",
+    "sqlmodel",
+    "alembic",
+    "python-dotenv",
+    "gunicorn",
+    "psycopg2-binary",
+    "requests",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-playwright",
+    "ruff",
+    "pyright",
+]

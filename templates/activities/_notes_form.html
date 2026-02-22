@@ -1,0 +1,12 @@
+<div id="notes-section">
+    <form hx-post="/activities/{{ activity.icu_id }}/notes"
+          hx-target="#notes-section"
+          hx-swap="outerHTML">
+        <textarea name="notes" rows="4" style="width:100%">{{ activity.notes or "" }}</textarea>
+        <button type="submit">Save</button>
+        <button type="button"
+                hx-get="/activities/{{ activity.icu_id }}/notes"
+                hx-target="#notes-section"
+                hx-swap="outerHTML">Cancel</button>
+    </form>
+</div>

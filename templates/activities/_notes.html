@@ -1,0 +1,10 @@
+<div id="notes-section">
+    {% if activity.notes %}
+    <p>{{ activity.notes }}</p>
+    {% else %}
+    <p><em>No notes.</em></p>
+    {% endif %}
+    <button hx-get="/activities/{{ activity.icu_id }}/notes/edit"
+            hx-target="#notes-section"
+            hx-swap="outerHTML">Edit</button>
+</div>

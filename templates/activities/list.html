@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Activities – Velo Tracker{% endblock %}
+
+{% set feel_labels = {1: "💪 Very Strong", 2: "🙂 Strong", 3: "😐 Normal", 4: "😕 Weak", 5: "😫 Very Weak"} %}
+
+{% macro rpe_badge(rpe) %}
+{% if rpe <= 3 %}
+<span class="rpe-badge rpe-easy">{{ rpe }}</span>
+{% elif rpe <= 6 %}
+<span class="rpe-badge rpe-medium">{{ rpe }}</span>
+{% elif rpe <= 8 %}
+<span class="rpe-badge rpe-hard">{{ rpe }}</span>
+{% else %}
+<span class="rpe-badge rpe-max">{{ rpe }}</span>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<h1>Activities</h1>
+
+<form hx-post="/activities/sync"
+      hx-target="#sync-result"
+      hx-swap="innerHTML"
+      hx-indicator="#sync-spinner"
+      style="display:inline-flex; gap:.5rem; align-items:center;">
+    <label for="since">Since</label>
+    <input type="date" id="since" name="since"
+           value="{{ (today - timedelta(days=7)).isoformat() }}">
+    <button type="submit">Sync from intervals.icu</button>
+    <span id="sync-spinner" class="htmx-indicator"> Syncing…</span>
+</form>
+
+<div id="sync-result"></div>
+
+{% if activities %}
+<table>
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Name</th>
+            <th>Distance</th>
+            <th>Time</th>
+            <th>Elev</th>
+            <th>NP</th>
+            <th>TSS</th>
+            <th>IF</th>
+            <th>Avg HR</th>
+            <th>RPE</th>
+            <th>Feel</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in activities %}
+        <tr>
+            <td><a href="/activities/{{ a.icu_id }}">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
+            <td>{{ a.name }}</td>
+            <td>{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
+            <td>{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
+            <td>{% if a.total_elevation_gain %}{{ a.total_elevation_gain|int }} m{% else %}–{% endif %}</td>
+            <td>{% if a.normalized_watts %}{{ a.normalized_watts|int }} W{% else %}–{% endif %}</td>
+            <td>{% if a.tss %}{{ a.tss|int }}{% else %}–{% endif %}</td>
+            <td>{% if a.intensity_factor %}{{ "%.0f"|format(a.intensity_factor) }}%{% else %}–{% endif %}</td>
+            <td>{% if a.average_heartrate %}{{ a.average_heartrate|int }}{% else %}–{% endif %}</td>
+            <td>{% if a.icu_rpe %}{{ rpe_badge(a.icu_rpe) }}{% else %}–{% endif %}</td>
+            <td>{% if a.feel %}{{ feel_labels.get(a.feel, a.feel) }}{% else %}–{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No activities yet. Click <strong>Sync</strong> to import from intervals.icu.</p>
+{% endif %}
+{% endblock %}

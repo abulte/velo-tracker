@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ activity.name }} – Velo Tracker{% endblock %}
+
+{% set feel_labels = {1: "💪 Very Strong", 2: "🙂 Strong", 3: "😐 Normal", 4: "😕 Weak", 5: "😫 Very Weak"} %}
+
+{% block content %}
+<h1>{{ activity.name }}</h1>
+<p>
+    <a href="/activities">&larr; Back</a> &nbsp;
+    <small>{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.sport }}</small>
+</p>
+
+{% if activity.icu_rpe or activity.feel %}
+<div class="feedback-bar">
+    {% if activity.icu_rpe %}
+    {% set rpe = activity.icu_rpe %}
+    {% if rpe <= 3 %}{% set cls = "rpe-easy" %}
+    {% elif rpe <= 6 %}{% set cls = "rpe-medium" %}
+    {% elif rpe <= 8 %}{% set cls = "rpe-hard" %}
+    {% else %}{% set cls = "rpe-max" %}{% endif %}
+    <span>RPE <span class="rpe-badge {{ cls }}">{{ rpe }}/10</span></span>
+    {% endif %}
+    {% if activity.feel %}
+    <span>Feel <strong>{{ feel_labels.get(activity.feel, activity.feel) }}</strong></span>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="stats-grid">
+    <article>
+        <strong>Distance</strong>
+        <p>{% if activity.distance %}{{ "%.1f"|format(activity.distance / 1000) }} km{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Moving Time</strong>
+        <p>{% if activity.moving_time %}{{ (activity.moving_time // 3600) }}h {{ "%02d"|format((activity.moving_time % 3600) // 60) }}m{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Elevation</strong>
+        <p>{% if activity.total_elevation_gain %}{{ activity.total_elevation_gain|int }} m{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Avg Power</strong>
+        <p>{% if activity.average_watts %}{{ activity.average_watts|int }} W{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>NP</strong>
+        <p>{% if activity.normalized_watts %}{{ activity.normalized_watts|int }} W{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>TSS</strong>
+        <p>{% if activity.tss %}{{ activity.tss|int }}{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>IF</strong>
+        <p>{% if activity.intensity_factor %}{{ "%.0f"|format(activity.intensity_factor) }}%{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Avg HR</strong>
+        <p>{% if activity.average_heartrate %}{{ activity.average_heartrate|int }} bpm{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Max HR</strong>
+        <p>{% if activity.max_heartrate %}{{ activity.max_heartrate }} bpm{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Avg Cadence</strong>
+        <p>{% if activity.average_cadence %}{{ activity.average_cadence|int }} rpm{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Avg Speed</strong>
+        <p>{% if activity.average_speed %}{{ "%.1f"|format(activity.average_speed * 3.6) }} km/h{% else %}–{% endif %}</p>
+    </article>
+    <article>
+        <strong>Max Watts</strong>
+        <p>{% if activity.max_watts %}{{ activity.max_watts }} W{% else %}–{% endif %}</p>
+    </article>
+</div>
+
+{% if activity.description %}
+<h2>Description</h2>
+<p>{{ activity.description }}</p>
+{% endif %}
+
+<h2>Notes</h2>
+{% include "activities/_notes.html" %}
+
+{% endblock %}
