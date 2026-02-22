@@ -33,7 +33,7 @@
 <div id="sync-result"></div>
 
 {% if activities %}
-<table>
+<table class="table-full">
     <thead>
         <tr>
             <th>Date</th>
@@ -47,6 +47,7 @@
             <th>Avg HR</th>
             <th>RPE</th>
             <th>Feel</th>
+            <th></th>
         </tr>
     </thead>
     <tbody>
@@ -63,6 +64,7 @@
             <td>{% if a.average_heartrate %}{{ a.average_heartrate|int }}{% else %}–{% endif %}</td>
             <td>{% if a.icu_rpe %}{{ rpe_badge(a.icu_rpe) }}{% else %}–{% endif %}</td>
             <td>{% if a.feel %}{{ feel_labels.get(a.feel, a.feel) }}{% else %}–{% endif %}</td>
+            <td>{% if a.notes %}📓{% endif %}</td>
         </tr>
         {% endfor %}
     </tbody>

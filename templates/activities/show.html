@@ -15,50 +15,56 @@
     <small>{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.sport }}</small>
 </p>
 
-<table>
-    <tbody>
-        <tr><th>Distance</th><td>{% if activity.distance %}{{ "%.1f"|format(activity.distance / 1000) }} km{% else %}–{% endif %}</td></tr>
-        <tr><th>Moving Time</th><td>{% if activity.moving_time %}{{ (activity.moving_time // 3600) }}h {{ "%02d"|format((activity.moving_time % 3600) // 60) }}m{% else %}–{% endif %}</td></tr>
-        <tr><th><abbr title="Normalized Power">NP</abbr></th><td>{% if activity.normalized_watts %}{{ activity.normalized_watts|int }} W{% else %}–{% endif %}</td></tr>
-        <tr><th><abbr title="Rating of Perceived Exertion">RPE</abbr></th><td>
-            {% if activity.icu_rpe %}
-            {% set rpe = activity.icu_rpe %}
-            {% if rpe <= 3 %}{% set cls = "rpe-easy" %}
-            {% elif rpe <= 6 %}{% set cls = "rpe-medium" %}
-            {% elif rpe <= 8 %}{% set cls = "rpe-hard" %}
-            {% else %}{% set cls = "rpe-max" %}{% endif %}
-            <span class="rpe-badge {{ cls }}">{{ rpe }}/10</span>
-            {% else %}–{% endif %}
-        </td></tr>
-        <tr><th>Feel</th><td>{% if activity.feel %}{{ feel_labels.get(activity.feel, activity.feel) }}{% else %}–{% endif %}</td></tr>
-    </tbody>
-</table>
+<div class="activity-grid">
+    <div>
+        <table>
+            <tbody>
+                <tr><th>Distance</th><td>{% if activity.distance %}{{ "%.1f"|format(activity.distance / 1000) }} km{% else %}–{% endif %}</td></tr>
+                <tr><th>Moving Time</th><td>{% if activity.moving_time %}{{ (activity.moving_time // 3600) }}h {{ "%02d"|format((activity.moving_time % 3600) // 60) }}m{% else %}–{% endif %}</td></tr>
+                <tr><th><abbr title="Normalized Power">NP</abbr></th><td>{% if activity.normalized_watts %}{{ activity.normalized_watts|int }} W{% else %}–{% endif %}</td></tr>
+                <tr><th><abbr title="Rating of Perceived Exertion">RPE</abbr></th><td>
+                    {% if activity.icu_rpe %}
+                    {% set rpe = activity.icu_rpe %}
+                    {% if rpe <= 3 %}{% set cls = "rpe-easy" %}
+                    {% elif rpe <= 6 %}{% set cls = "rpe-medium" %}
+                    {% elif rpe <= 8 %}{% set cls = "rpe-hard" %}
+                    {% else %}{% set cls = "rpe-max" %}{% endif %}
+                    <span class="rpe-badge {{ cls }}">{{ rpe }}/10</span>
+                    {% else %}–{% endif %}
+                </td></tr>
+                <tr><th>Feel</th><td>{% if activity.feel %}{{ feel_labels.get(activity.feel, activity.feel) }}{% else %}–{% endif %}</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div>
+        {% include "activities/_notes.html" %}
+    </div>
+    <div>
+        <h2>Details</h2>
+        <table>
+            <tbody>
+                <tr><th>Elevation</th><td>{% if activity.total_elevation_gain %}{{ activity.total_elevation_gain|int }} m{% else %}–{% endif %}</td></tr>
+                <tr><th><abbr title="Training Stress Score">TSS</abbr></th><td>{% if activity.tss %}{{ activity.tss|int }}{% else %}–{% endif %}</td></tr>
+                <tr><th><abbr title="Intensity Factor — ratio of NP to FTP">IF</abbr></th><td>{% if activity.intensity_factor %}{{ "%.0f"|format(activity.intensity_factor) }}%{% else %}–{% endif %}</td></tr>
+                <tr><th>Avg Power</th><td>{% if activity.average_watts %}{{ activity.average_watts|int }} W{% else %}–{% endif %}</td></tr>
+                <tr><th>Max Power</th><td>{% if activity.max_watts %}{{ activity.max_watts }} W{% else %}–{% endif %}</td></tr>
+                <tr><th>Avg <abbr title="Heart Rate">HR</abbr></th><td>{% if activity.average_heartrate %}{{ activity.average_heartrate|int }} bpm{% else %}–{% endif %}</td></tr>
+                <tr><th>Max <abbr title="Heart Rate">HR</abbr></th><td>{% if activity.max_heartrate %}{{ activity.max_heartrate }} bpm{% else %}–{% endif %}</td></tr>
+                <tr><th>Avg Cadence</th><td>{% if activity.average_cadence %}{{ activity.average_cadence|int }} rpm{% else %}–{% endif %}</td></tr>
+                <tr><th>Avg Speed</th><td>{% if activity.average_speed %}{{ "%.1f"|format(activity.average_speed * 3.6) }} km/h{% else %}–{% endif %}</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div>
+        <h2>Map</h2>
+        <div id="map"></div>
+    </div>
+</div>
 
 {% if activity.description %}
 <h2>Description</h2>
 <p>{{ activity.description }}</p>
 {% endif %}
-
-<h2>Notes</h2>
-{% include "activities/_notes.html" %}
-
-<h2>Details</h2>
-<table>
-    <tbody>
-        <tr><th>Elevation</th><td>{% if activity.total_elevation_gain %}{{ activity.total_elevation_gain|int }} m{% else %}–{% endif %}</td></tr>
-        <tr><th><abbr title="Training Stress Score">TSS</abbr></th><td>{% if activity.tss %}{{ activity.tss|int }}{% else %}–{% endif %}</td></tr>
-        <tr><th><abbr title="Intensity Factor — ratio of NP to FTP">IF</abbr></th><td>{% if activity.intensity_factor %}{{ "%.0f"|format(activity.intensity_factor) }}%{% else %}–{% endif %}</td></tr>
-        <tr><th>Avg Power</th><td>{% if activity.average_watts %}{{ activity.average_watts|int }} W{% else %}–{% endif %}</td></tr>
-        <tr><th>Max Power</th><td>{% if activity.max_watts %}{{ activity.max_watts }} W{% else %}–{% endif %}</td></tr>
-        <tr><th>Avg <abbr title="Heart Rate">HR</abbr></th><td>{% if activity.average_heartrate %}{{ activity.average_heartrate|int }} bpm{% else %}–{% endif %}</td></tr>
-        <tr><th>Max <abbr title="Heart Rate">HR</abbr></th><td>{% if activity.max_heartrate %}{{ activity.max_heartrate }} bpm{% else %}–{% endif %}</td></tr>
-        <tr><th>Avg Cadence</th><td>{% if activity.average_cadence %}{{ activity.average_cadence|int }} rpm{% else %}–{% endif %}</td></tr>
-        <tr><th>Avg Speed</th><td>{% if activity.average_speed %}{{ "%.1f"|format(activity.average_speed * 3.6) }} km/h{% else %}–{% endif %}</td></tr>
-    </tbody>
-</table>
-
-<h2>Map</h2>
-<div id="map"></div>
 
 <script>
 const map = L.map('map');
