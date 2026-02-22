@@ -84,26 +84,24 @@ def show_activity(icu_id: str):
     return render_template("activities/show.html", activity=activity)
 
 
-@app.route("/activities/<string:icu_id>/notes", methods=["GET"])
-def get_notes(icu_id: str):
-    with get_session() as session:
-        activity = session.exec(
-            select(Activity).where(Activity.icu_id == icu_id)
-        ).first()
-        if not activity:
-            return "Not found", 404
-    return render_template("activities/_notes.html", activity=activity)
 
-
-@app.route("/activities/<string:icu_id>/notes/edit", methods=["GET"])
-def edit_notes(icu_id: str):
-    with get_session() as session:
-        activity = session.exec(
-            select(Activity).where(Activity.icu_id == icu_id)
-        ).first()
-        if not activity:
-            return "Not found", 404
-    return render_template("activities/_notes_form.html", activity=activity)
+@app.route("/activities/<string:icu_id>/streams")
+def activity_streams(icu_id: str):
+    import intervals
+    from flask import jsonify
+    raw = intervals.get_streams(icu_id, types=["latlng"])
+    # latlng stream: latitudes in 'data', longitudes in 'data2'
+    stream = next((s for s in raw if s["type"] == "latlng"), None)
+    if not stream:
+        return jsonify([])
+    lats = stream.get("data") or []
+    lngs = stream.get("data2") or []
+    pairs = [
+        [lat, lng]
+        for lat, lng in zip(lats, lngs)
+        if lat is not None and lng is not None
+    ]
+    return jsonify(pairs)
 
 
 @app.route("/activities/<string:icu_id>/notes", methods=["POST"])
