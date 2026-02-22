@@ -43,9 +43,52 @@ def cli_sync(since: str):
 # Routes
 # ---------------------------------------------------------------------------
 
+def _stats(activities):
+    rides = len(activities)
+    distance = sum(a.distance or 0 for a in activities) / 1000
+    time = sum(a.moving_time or 0 for a in activities)
+    elevation = sum(a.total_elevation_gain or 0 for a in activities)
+    tss = sum(a.tss or 0 for a in activities)
+    rpe_vals = [a.icu_rpe for a in activities if a.icu_rpe]
+    avg_rpe = sum(rpe_vals) / len(rpe_vals) if rpe_vals else None
+    return dict(rides=rides, distance=distance, time=time,
+                elevation=elevation, tss=tss, avg_rpe=avg_rpe)
+
+
 @app.route("/")
 def index():
-    return redirect(url_for("list_activities"))
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/dashboard")
+def dashboard():
+    with get_session() as session:
+        activities = session.exec(
+            select(Activity).order_by(Activity.start_date.desc())
+        ).all()
+
+    by_week = {}
+    by_month = {}
+    for a in activities:
+        iso = a.start_date.isocalendar()
+        wk = (iso[0], iso[1])
+        mo = (a.start_date.year, a.start_date.month)
+        by_week.setdefault(wk, []).append(a)
+        by_month.setdefault(mo, []).append(a)
+
+    def _week_label(year, week):
+        mon = datetime.date.fromisocalendar(year, week, 1)
+        sun = datetime.date.fromisocalendar(year, week, 7)
+        if mon.month == sun.month:
+            return f"{mon.strftime('%b %-d')}–{sun.day} {sun.strftime('%Y')}"
+        return f"{mon.strftime('%b %-d')} – {sun.strftime('%b %-d %Y')}"
+
+    weeks = [{"key": k, "label": _week_label(*k), "stats": _stats(v)}
+             for k, v in sorted(by_week.items(), reverse=True)]
+    months = [{"key": k, "label": datetime.date(k[0], k[1], 1).strftime("%B %Y"), "stats": _stats(v)}
+              for k, v in sorted(by_month.items(), reverse=True)]
+
+    return render_template("dashboard.html", weeks=weeks, months=months)
 
 
 @app.route("/activities")

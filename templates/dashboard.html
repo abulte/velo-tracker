@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Velo Tracker{% endblock %}
+
+{% macro fmt_time(seconds) %}{{ (seconds // 3600)|int }}h {{ "%02d"|format((seconds % 3600) // 60) }}m{% endmacro %}
+
+{% macro recap_table(rows) %}
+<table class="table-full">
+    <thead>
+        <tr>
+            <th>Period</th>
+            <th>Rides</th>
+            <th>Distance</th>
+            <th>Time</th>
+            <th>Elevation</th>
+            <th><abbr title="Training Stress Score">TSS</abbr></th>
+            <th>Avg <abbr title="Rating of Perceived Exertion">RPE</abbr></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in rows %}
+        <tr>
+            <td>{{ row.label }}</td>
+            <td>{{ row.stats.rides }}</td>
+            <td>{{ "%.0f"|format(row.stats.distance) }} km</td>
+            <td>{{ fmt_time(row.stats.time) }}</td>
+            <td>{{ "%.0f"|format(row.stats.elevation) }} m</td>
+            <td>{{ "%.0f"|format(row.stats.tss) }}</td>
+            <td>{% if row.stats.avg_rpe %}{{ "%.1f"|format(row.stats.avg_rpe) }}{% else %}–{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<h2>By Month</h2>
+{{ recap_table(months) }}
+
+<h2>By Week</h2>
+{{ recap_table(weeks) }}
+{% endblock %}

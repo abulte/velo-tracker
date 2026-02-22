@@ -49,6 +49,7 @@ table {
 }
 
 @media (max-width: 640px) {
+    .recap-grid,
     .activity-grid {
         grid-template-columns: 1fr;
     }
