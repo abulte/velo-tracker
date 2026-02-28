@@ -139,6 +139,19 @@ wheels = [
 ]
 
 [[package]]
+name = "flask-fenrir"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "flask" },
+    { name = "sqlalchemy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2c/9f/3f49f09d7e19c67f814bcc41f7ec50d1b9d67ba4d1e0c3c8f851e5a06327/flask_fenrir-0.4.0.tar.gz", hash = "sha256:8dc9ce1eeaae06da511a73a1437de7ea9b37db49425e0108bc0b5e8074c81352", size = 9462, upload-time = "2026-02-28T08:36:26.044Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/28/0f/b58bb0108515a8440158c415849175fcedc1d5a409635f0d4d5c8bc05fc3/flask_fenrir-0.4.0-py3-none-any.whl", hash = "sha256:d076bd9248191f8181e663f11c2f1c24c43c2cfcdaf41a0c478253894a2a8d52", size = 7529, upload-time = "2026-02-28T08:36:26.772Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -720,6 +733,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
     { name = "flask" },
+    { name = "flask-fenrir" },
     { name = "gunicorn" },
     { name = "psycopg2-binary" },
     { name = "python-dotenv" },
@@ -739,6 +753,7 @@ dev = [
 requires-dist = [
     { name = "alembic" },
     { name = "flask" },
+    { name = "flask-fenrir", specifier = ">=0.4.0" },
     { name = "gunicorn" },
     { name = "psycopg2-binary" },
     { name = "pyright", marker = "extra == 'dev'" },

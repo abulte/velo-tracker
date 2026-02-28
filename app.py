@@ -4,11 +4,12 @@ import os
 import click
 from dotenv import load_dotenv
 from flask import Flask, render_template, redirect, url_for, request
+from flask_fenrir import create_fenrir_bp, secure_app
 from sqlmodel import Session, create_engine, select
 
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask("velo-tracker")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
 
 database_url = os.getenv("DATABASE_URL", "")
@@ -18,6 +19,9 @@ app.config["DATABASE_URL"] = database_url
 
 engine = create_engine(app.config["DATABASE_URL"], echo=False)
 
+# Fenrir
+app.register_blueprint(create_fenrir_bp(engine))
+secure_app(app)
 
 def get_session():
     return Session(engine)

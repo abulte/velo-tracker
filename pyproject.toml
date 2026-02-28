@@ -10,6 +10,7 @@ dependencies = [
     "gunicorn",
     "psycopg2-binary",
     "requests",
+    "flask-fenrir>=0.4.0",
 ]
 
 [project.optional-dependencies]
