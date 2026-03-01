@@ -157,7 +157,6 @@ def show_activity(garmin_id: str):
 
 @app.route("/activities/<string:garmin_id>/streams")
 def activity_streams(garmin_id: str):
-    import json
     from flask import jsonify
 
     with get_session() as session:
@@ -165,7 +164,7 @@ def activity_streams(garmin_id: str):
             select(Activity).where(Activity.garmin_id == garmin_id)
         ).first()
         if activity and activity.polyline:
-            return jsonify(json.loads(activity.polyline))
+            return jsonify(activity.polyline)
     return jsonify([])
 
 

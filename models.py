@@ -1,5 +1,6 @@
 import datetime
 from typing import Optional
+from sqlalchemy import Column, JSON
 from sqlmodel import Field, SQLModel
 
 
@@ -44,7 +45,7 @@ class Activity(SQLModel, table=True):
     feel: Optional[int] = None   # directWorkoutFeel (0-100 scale from Garmin)
 
     # Map data
-    polyline: Optional[str] = None  # JSON array of [lat, lon] pairs
+    polyline: Optional[list] = Field(default=None, sa_column=Column(JSON))  # [[lat, lon], ...]
 
     # Local notes (stored only in this app)
     notes: Optional[str] = None

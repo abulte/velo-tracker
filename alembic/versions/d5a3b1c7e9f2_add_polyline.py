@@ -19,7 +19,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('activity', sa.Column('polyline', sqlmodel.sql.sqltypes.AutoString(), nullable=True))
+    op.add_column('activity', sa.Column('polyline', sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:

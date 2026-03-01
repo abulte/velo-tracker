@@ -107,7 +107,7 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             detail_summary = detail.get("summaryDTO", {}) if detail else {}
 
             # Fetch polyline for map
-            polyline_json = None
+            pairs = []
             try:
                 details = client.get_activity_details(item["activityId"])
                 poly = details.get("geoPolylineDTO", {})
@@ -117,13 +117,11 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
                     for p in points
                     if p.get("lat") is not None and p.get("lon") is not None
                 ]
-                if pairs:
-                    polyline_json = json.dumps(pairs)
             except Exception:
                 pass  # no polyline for this activity
 
             fields = _map_activity(item, detail_summary)
-            fields["polyline"] = polyline_json
+            fields["polyline"] = pairs if pairs else None
             garmin_id = fields.pop("garmin_id")
 
             existing = session.exec(
