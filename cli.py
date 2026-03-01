@@ -102,6 +102,10 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
                 skipped += 1
                 continue
 
+            name = item.get("activityName", "?")[:40]
+            type_key = at.get("typeKey", "?")
+            click.echo(f"  [{synced + 1}] {start_dt:%Y-%m-%d} {name} ({type_key})… ", nl=False)
+
             # Fetch detail for RPE/feel (only in summaryDTO)
             detail = client.get_activity(item["activityId"])
             detail_summary = detail.get("summaryDTO", {}) if detail else {}
@@ -135,6 +139,7 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
 
             session.add(activity)
             synced += 1
+            click.echo("✓")
 
         if past_cutoff or len(batch) < batch_size:
             break
