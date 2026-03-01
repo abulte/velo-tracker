@@ -157,22 +157,16 @@ def show_activity(garmin_id: str):
 
 @app.route("/activities/<string:garmin_id>/streams")
 def activity_streams(garmin_id: str):
+    import json
     from flask import jsonify
-    from garmin import get_client
 
-    try:
-        client = get_client()
-        details = client.get_activity_details(int(garmin_id))
-        poly = details.get("geoPolylineDTO", {})
-        points = poly.get("polyline", [])
-        pairs = [
-            [p["lat"], p["lon"]]
-            for p in points
-            if p.get("lat") is not None and p.get("lon") is not None
-        ]
-        return jsonify(pairs)
-    except Exception:
-        return jsonify([])
+    with get_session() as session:
+        activity = session.exec(
+            select(Activity).where(Activity.garmin_id == garmin_id)
+        ).first()
+        if activity and activity.polyline:
+            return jsonify(json.loads(activity.polyline))
+    return jsonify([])
 
 
 @app.route("/activities/<string:garmin_id>/notes", methods=["POST"])

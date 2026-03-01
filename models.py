@@ -43,6 +43,9 @@ class Activity(SQLModel, table=True):
     rpe: Optional[int] = None    # directWorkoutRpe (0-100 scale from Garmin)
     feel: Optional[int] = None   # directWorkoutFeel (0-100 scale from Garmin)
 
+    # Map data
+    polyline: Optional[str] = None  # JSON array of [lat, lon] pairs
+
     # Local notes (stored only in this app)
     notes: Optional[str] = None
 
