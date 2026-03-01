@@ -1,14 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Activities – Velo Tracker{% endblock %}
 
-{% set feel_labels = {1: "💪 Very Strong", 2: "🙂 Strong", 3: "😐 Normal", 4: "😕 Weak", 5: "😫 Very Weak"} %}
+{% set feel_labels = {0: "😫 Very Weak", 25: "😕 Weak", 50: "😐 Normal", 75: "🙂 Strong", 100: "💪 Very Strong"} %}
+
+{% set type_icons = {"road_biking": "🚴", "gravel_cycling": "🪨", "indoor_cycling": "🏠", "e_bike_mountain": "⚡", "cycling": "🚲"} %}
+{% macro activity_type_label(t) %}
+{%- if t in type_icons %}<span title="{{ t }}">{{ type_icons[t] }}</span>{% else %}{{ t }}{% endif -%}
+{% endmacro %}
 
 {% macro rpe_badge(rpe) %}
-{% if rpe <= 3 %}
+{% if rpe <= 30 %}
 <span class="rpe-badge rpe-easy">{{ rpe }}</span>
-{% elif rpe <= 6 %}
+{% elif rpe <= 60 %}
 <span class="rpe-badge rpe-medium">{{ rpe }}</span>
-{% elif rpe <= 8 %}
+{% elif rpe <= 80 %}
 <span class="rpe-badge rpe-hard">{{ rpe }}</span>
 {% else %}
 <span class="rpe-badge rpe-max">{{ rpe }}</span>
@@ -26,7 +31,7 @@
     <label for="since">Since</label>
     <input type="date" id="since" name="since"
            value="{{ (today - timedelta(days=7)).isoformat() }}">
-    <button type="submit">Sync from intervals.icu</button>
+    <button type="submit">Sync from Garmin</button>
     <span id="sync-spinner" class="htmx-indicator"> Syncing…</span>
 </form>
 
@@ -36,6 +41,7 @@
 <table class="table-full">
     <thead>
         <tr>
+            <th></th>
             <th>Date</th>
             <th>Name</th>
             <th>Distance</th>
@@ -53,7 +59,8 @@
     <tbody>
         {% for a in activities %}
         <tr>
-            <td><a href="/activities/{{ a.icu_id }}">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
+            <td>{{ activity_type_label(a.activity_type) }}</td>
+            <td><a href="/activities/{{ a.garmin_id }}">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
             <td>{{ a.name }}</td>
             <td>{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
             <td>{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
@@ -62,7 +69,7 @@
             <td>{% if a.tss %}{{ a.tss|int }}{% else %}–{% endif %}</td>
             <td>{% if a.intensity_factor %}{{ "%.0f"|format(a.intensity_factor) }}%{% else %}–{% endif %}</td>
             <td>{% if a.average_heartrate %}{{ a.average_heartrate|int }}{% else %}–{% endif %}</td>
-            <td>{% if a.icu_rpe %}{{ rpe_badge(a.icu_rpe) }}{% else %}–{% endif %}</td>
+            <td>{% if a.rpe %}{{ rpe_badge(a.rpe) }}{% else %}–{% endif %}</td>
             <td>{% if a.feel %}{{ feel_labels.get(a.feel, a.feel) }}{% else %}–{% endif %}</td>
             <td>{% if a.notes %}📓{% endif %}</td>
         </tr>
@@ -70,6 +77,6 @@
     </tbody>
 </table>
 {% else %}
-<p>No activities yet. Click <strong>Sync</strong> to import from intervals.icu.</p>
+<p>No activities yet. Click <strong>Sync</strong> to import from Garmin Connect.</p>
 {% endif %}
 {% endblock %}

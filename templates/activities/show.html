@@ -6,13 +6,13 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 {% endblock %}
 
-{% set feel_labels = {1: "💪 Very Strong", 2: "🙂 Strong", 3: "😐 Normal", 4: "😕 Weak", 5: "😫 Very Weak"} %}
+{% set feel_labels = {0: "😫 Very Weak", 25: "😕 Weak", 50: "😐 Normal", 75: "🙂 Strong", 100: "💪 Very Strong"} %}
 
 {% block content %}
 <h1>{{ activity.name }}</h1>
 <p>
     <a href="/activities">&larr; Back</a> &nbsp;
-    <small>{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.sport }}</small>
+    <small>{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.activity_type }}</small>
 </p>
 
 <div class="activity-grid">
@@ -23,13 +23,13 @@
                 <tr><th>Moving Time</th><td>{% if activity.moving_time %}{{ (activity.moving_time // 3600) }}h {{ "%02d"|format((activity.moving_time % 3600) // 60) }}m{% else %}–{% endif %}</td></tr>
                 <tr><th><abbr title="Normalized Power">NP</abbr></th><td>{% if activity.normalized_watts %}{{ activity.normalized_watts|int }} W{% else %}–{% endif %}</td></tr>
                 <tr><th><abbr title="Rating of Perceived Exertion">RPE</abbr></th><td>
-                    {% if activity.icu_rpe %}
-                    {% set rpe = activity.icu_rpe %}
-                    {% if rpe <= 3 %}{% set cls = "rpe-easy" %}
-                    {% elif rpe <= 6 %}{% set cls = "rpe-medium" %}
-                    {% elif rpe <= 8 %}{% set cls = "rpe-hard" %}
+                    {% if activity.rpe %}
+                    {% set rpe = activity.rpe %}
+                    {% if rpe <= 30 %}{% set cls = "rpe-easy" %}
+                    {% elif rpe <= 60 %}{% set cls = "rpe-medium" %}
+                    {% elif rpe <= 80 %}{% set cls = "rpe-hard" %}
                     {% else %}{% set cls = "rpe-max" %}{% endif %}
-                    <span class="rpe-badge {{ cls }}">{{ rpe }}/10</span>
+                    <span class="rpe-badge {{ cls }}">{{ rpe }}/100</span>
                     {% else %}–{% endif %}
                 </td></tr>
                 <tr><th>Feel</th><td>{% if activity.feel %}{{ feel_labels.get(activity.feel, activity.feel) }}{% else %}–{% endif %}</td></tr>
@@ -75,7 +75,7 @@ L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'
     maxZoom: 19,
 }).addTo(map);
 
-fetch('/activities/{{ activity.icu_id }}/streams')
+fetch('/activities/{{ activity.garmin_id }}/streams')
     .then(r => r.json())
     .then(pairs => {
         if (!pairs || !pairs.length) return;

@@ -3,14 +3,15 @@ name = "velo-tracker"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "click",
     "flask",
     "sqlmodel",
     "alembic",
     "python-dotenv",
     "gunicorn",
     "psycopg2-binary",
-    "requests",
     "flask-fenrir>=0.4.0",
+    "garminconnect>=0.2.38",
 ]
 
 [project.optional-dependencies]

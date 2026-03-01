@@ -7,4 +7,4 @@ restore:
 	@echo "Creating fresh database..."
 	docker compose exec -T -u postgres db createdb velodb
 	@echo "Restoring from Dokku..."
-	dokku postgres:export velo-tracker-db | docker compose exec -T -u postgres db pg_restore -v -d velodb
+	dokku postgres:export velo-tracker | docker compose exec -T -u postgres db pg_restore -v -d velodb

@@ -8,7 +8,7 @@
     <button onclick="document.getElementById('notes-dialog').showModal()">Edit</button>
 
     <dialog id="notes-dialog">
-        <form hx-post="/activities/{{ activity.icu_id }}/notes"
+        <form hx-post="/activities/{{ activity.garmin_id }}/notes"
               hx-target="#notes-section"
               hx-swap="outerHTML"
               hx-on::after-request="document.getElementById('notes-dialog').close()">

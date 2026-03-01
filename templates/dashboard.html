@@ -8,6 +8,9 @@
     <thead>
         <tr>
             <th>Period</th>
+            <th>Total Dist</th>
+            <th>Total Time</th>
+            <th></th>
             <th>Rides</th>
             <th>Distance</th>
             <th>Time</th>
@@ -18,19 +21,28 @@
     </thead>
     <tbody>
         {% for row in rows %}
-        <tr>
-            <td>{{ row.label }}</td>
-            <td>{{ row.stats.rides }}</td>
-            <td>{{ "%.0f"|format(row.stats.distance) }} km</td>
-            <td>{{ fmt_time(row.stats.time) }}</td>
-            <td>{{ "%.0f"|format(row.stats.elevation) }} m</td>
-            <td>{{ "%.0f"|format(row.stats.tss) }}</td>
-            <td>{% if row.stats.avg_rpe %}{{ "%.1f"|format(row.stats.avg_rpe) }}{% else %}–{% endif %}</td>
+        {% for t, s in row.stats.by_type.items() %}
+        <tr{% if loop.first %} class="period-start"{% endif %}>
+            {% if loop.first %}
+            <td rowspan="{{ row.stats.by_type|length }}">{{ row.label }}</td>
+            <td rowspan="{{ row.stats.by_type|length }}">{{ "%.0f"|format(row.stats.distance) }} km</td>
+            <td rowspan="{{ row.stats.by_type|length }}">{{ fmt_time(row.stats.time) }}</td>
+            {% endif %}
+            <td title="{{ t }}">{{ type_icons.get(t, t) }}</td>
+            <td>{{ s.rides }}</td>
+            <td>{{ "%.0f"|format(s.distance) }} km</td>
+            <td>{{ fmt_time(s.time) }}</td>
+            <td>{{ "%.0f"|format(s.elevation) }} m</td>
+            <td>{{ "%.0f"|format(s.tss) }}</td>
+            <td>{% if s.avg_rpe %}{{ "%.1f"|format(s.avg_rpe) }}{% else %}–{% endif %}</td>
         </tr>
+        {% endfor %}
         {% endfor %}
     </tbody>
 </table>
 {% endmacro %}
+
+{% set type_icons = {"road_biking": "🚴", "gravel_cycling": "🪨", "indoor_cycling": "🏠", "e_bike_mountain": "⚡", "cycling": "🚲"} %}
 
 {% block content %}
 <h1>Dashboard</h1>

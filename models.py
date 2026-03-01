@@ -6,13 +6,12 @@ from sqlmodel import Field, SQLModel
 class Activity(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 
-    # intervals.icu identifiers
-    icu_id: str = Field(unique=True, index=True)  # e.g. "A12345678"
-    athlete_id: str = Field(index=True)
+    # Garmin Connect identifier
+    garmin_id: str = Field(unique=True, index=True)  # activityId as string
 
     # Core fields
     name: str
-    sport: str = Field(index=True)  # e.g. "Ride", "VirtualRide", "Run"
+    activity_type: str = Field(index=True)  # typeKey: road_biking, gravel_cycling, etc.
     start_date: datetime.datetime = Field(index=True)
 
     # Distance & time
@@ -25,7 +24,6 @@ class Activity(SQLModel, table=True):
     average_watts: Optional[float] = None
     normalized_watts: Optional[float] = None
     max_watts: Optional[int] = None
-    weighted_average_watts: Optional[float] = None
 
     # Heart rate
     average_heartrate: Optional[float] = None
@@ -39,11 +37,11 @@ class Activity(SQLModel, table=True):
     # Training load
     tss: Optional[float] = None
     intensity_factor: Optional[float] = None
-    icu_training_load: Optional[float] = None
+    training_load: Optional[float] = None
 
-    # Subjective feedback (from Garmin device input, synced via intervals.icu)
-    icu_rpe: Optional[int] = None    # RPE 1–10 (entered on device post-ride)
-    feel: Optional[int] = None       # Feel 1–5 (1=terrible, 5=great)
+    # Subjective feedback (from Garmin device post-ride)
+    rpe: Optional[int] = None    # directWorkoutRpe (0-100 scale from Garmin)
+    feel: Optional[int] = None   # directWorkoutFeel (0-100 scale from Garmin)
 
     # Local notes (stored only in this app)
     notes: Optional[str] = None

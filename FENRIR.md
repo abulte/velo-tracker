@@ -1,6 +1,23 @@
 # velo-tracker
 
-Tracks bike rides synced from intervals.icu (which aggregates from Garmin, Strava, etc.).
+Tracks bike rides synced from Garmin Connect.
+
+## Data source
+
+Garmin Connect API via the `garminconnect` Python library (OAuth via `garth`).
+Tokens stored locally in `garmin_tokens/` or as base64-encoded env vars on Dokku
+(`GARMIN_OAUTH1_TOKEN`, `GARMIN_OAUTH2_TOKEN`).
+
+## CLI
+
+```bash
+python cli.py login        # Authenticate with Garmin, save tokens, print dokku config:set command
+python cli.py sync          # Sync last 7 days
+python cli.py sync --since 2025-01-01
+python cli.py sync --all    # Sync everything
+```
+
+Also available as Flask CLI: `flask sync [--since YYYY-MM-DD] [--all]`
 
 ## Units
 
@@ -9,28 +26,22 @@ Tracks bike rides synced from intervals.icu (which aggregates from Garmin, Strav
 - `average_speed` / `max_speed`: m/s (multiply by 3.6 for km/h)
 - `total_elevation_gain`: metres
 
-## Fields that need context
+## Fields
 
-- `icu_id`: intervals.icu activity ID, e.g. `"A12345678"`. Primary external key used in API calls and URLs.
-- `athlete_id`: intervals.icu athlete ID, e.g. `"i12345"`. Matches the `INTERVALS_ATHLETE_ID` env var.
-- `tss`: Training Stress Score — composite load metric (time × intensity²). Higher = harder session. Note: currently populated from the same API field as `icu_training_load`, so these two columns are identical.
-- `intensity_factor`: Ratio of normalized power to the athlete's FTP. 0.75 = endurance, 1.0 = threshold, >1.0 = above FTP.
-- `icu_training_load`: Same value as `tss` (both map to `icu_training_load` from the API). Redundant — one will likely be dropped.
-- `icu_rpe`: Rate of Perceived Exertion, 1–10. Entered on the Garmin device after the ride.
-- `feel`: Subjective feel, 1–5 (1 = terrible, 5 = great). Also entered on device.
-- `normalized_watts`: Populated from `icu_weighted_avg_watts` in the API — the power-curve-weighted average that accounts for variability (always ≥ `average_watts`).
-- `weighted_average_watts`: Model field that is **never populated** by sync — ignore it.
-
-## Sport values
-
-Known values from intervals.icu: `Ride`, `GravelRide`, `VirtualRide`, `EBikeRide`, `Run`, `TrailRun`, `Hike`, `Walk`, `Swim`, `WeightTraining`, `Workout`. The API passes through whatever Garmin/Strava reports, so others are possible.
-
-Items with `_note` in the API response are calendar notes (not activities) and are skipped during sync.
+- `garmin_id`: Garmin Connect activity ID (string). Primary external key.
+- `activity_type`: Garmin `typeKey` — `road_biking`, `gravel_cycling`, `indoor_cycling`, `e_bike_mountain`, `cycling` (generic), etc.
+- `tss`: Training Stress Score from Garmin (`trainingStressScore`).
+- `intensity_factor`: Ratio of normalized power to FTP (`intensityFactor`).
+- `training_load`: Garmin's activity training load (`activityTrainingLoad`).
+- `rpe`: Rate of Perceived Exertion from Garmin device (`directWorkoutRpe`, 0–100 scale).
+- `feel`: Subjective feel from Garmin device (`directWorkoutFeel`, 0–100 scale).
+- `normalized_watts`: Normalized power (`normPower`).
 
 ## Sync
 
-Manual only. Two ways to trigger:
-- UI: "Sync" button on the activities page (POST `/activities/sync`), syncs last 7 days by default.
-- CLI: `flask sync [--since YYYY-MM-DD]`, also defaults to 7 days ago.
+Only syncs cycling activities (`parentTypeId == 2`). Non-cycling activities are skipped.
+Re-syncing the same date range upserts by `garmin_id` (safe to re-run).
 
-No background scheduler or webhooks. Re-syncing the same date range upserts by `icu_id` (safe to re-run).
+## Activity types
+
+Known cycling `typeKey` values from Garmin: `road_biking`, `gravel_cycling`, `indoor_cycling`, `e_bike_mountain`, `cycling` (generic). Others are possible.

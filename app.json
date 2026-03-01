@@ -1,6 +1,6 @@
 {
   "name": "velo-tracker",
-  "description": "Cycling activity tracker powered by intervals.icu",
+  "description": "Cycling activity tracker powered by Garmin Connect",
   "healthchecks": {
     "web": [{
       "type": "startup",

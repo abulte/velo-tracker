@@ -32,15 +32,20 @@ def get_session():
 # ---------------------------------------------------------------------------
 
 @app.cli.command("sync")
-@click.option("--since", default=None, help="Start date YYYY-MM-DD (default: 7 days ago)")
+@click.option("--since", default=None, help="Start date YYYY-MM-DD (default: 1 year ago)")
 def cli_sync(since: str):
-    """Sync activities from intervals.icu into the local DB."""
-    from sync import sync_activities
-    oldest = since or (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
-    click.echo(f"Syncing from {oldest}…")
+    """Sync cycling activities from Garmin Connect."""
+    from cli import sync_activities
+
+    cutoff = (
+        datetime.date.fromisoformat(since)
+        if since
+        else datetime.date.today() - datetime.timedelta(days=7)
+    )
+    click.echo(f"Syncing from {cutoff}…")
     with get_session() as session:
-        result = sync_activities(session, oldest)
-    click.echo(f"Done — synced: {result['synced']}, skipped (Strava): {result['skipped']}")
+        result = sync_activities(session, cutoff)
+    click.echo(f"Done — synced: {result['synced']}, skipped (non-cycling): {result['skipped']}")
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +58,27 @@ def _stats(activities):
     time = sum(a.moving_time or 0 for a in activities)
     elevation = sum(a.total_elevation_gain or 0 for a in activities)
     tss = sum(a.tss or 0 for a in activities)
-    rpe_vals = [a.icu_rpe for a in activities if a.icu_rpe]
+    rpe_vals = [a.rpe for a in activities if a.rpe]
     avg_rpe = sum(rpe_vals) / len(rpe_vals) if rpe_vals else None
+
+    by_type = {}
+    for a in activities:
+        by_type.setdefault(a.activity_type, []).append(a)
+    type_breakdown = {}
+    for t, acts in sorted(by_type.items()):
+        t_rpe = [a.rpe for a in acts if a.rpe]
+        type_breakdown[t] = dict(
+            rides=len(acts),
+            distance=sum(a.distance or 0 for a in acts) / 1000,
+            time=sum(a.moving_time or 0 for a in acts),
+            elevation=sum(a.total_elevation_gain or 0 for a in acts),
+            tss=sum(a.tss or 0 for a in acts),
+            avg_rpe=sum(t_rpe) / len(t_rpe) if t_rpe else None,
+        )
+
     return dict(rides=rides, distance=distance, time=time,
-                elevation=elevation, tss=tss, avg_rpe=avg_rpe)
+                elevation=elevation, tss=tss, avg_rpe=avg_rpe,
+                by_type=type_breakdown)
 
 
 @app.route("/")
@@ -111,51 +133,53 @@ def list_activities():
 
 @app.route("/activities/sync", methods=["POST"])
 def sync_activities_route():
-    from sync import sync_activities
+    from cli import sync_activities
+
     oldest = request.form.get("since") or (
         datetime.date.today() - datetime.timedelta(days=7)
     ).isoformat()
+    cutoff = datetime.date.fromisoformat(oldest)
     with get_session() as session:
-        result = sync_activities(session, oldest)
+        result = sync_activities(session, cutoff)
     return render_template("activities/_sync_result.html", **result)
 
 
-@app.route("/activities/<string:icu_id>")
-def show_activity(icu_id: str):
+@app.route("/activities/<string:garmin_id>")
+def show_activity(garmin_id: str):
     with get_session() as session:
         activity = session.exec(
-            select(Activity).where(Activity.icu_id == icu_id)
+            select(Activity).where(Activity.garmin_id == garmin_id)
         ).first()
         if not activity:
             return "Not found", 404
     return render_template("activities/show.html", activity=activity)
 
 
-
-@app.route("/activities/<string:icu_id>/streams")
-def activity_streams(icu_id: str):
-    import intervals
+@app.route("/activities/<string:garmin_id>/streams")
+def activity_streams(garmin_id: str):
     from flask import jsonify
-    raw = intervals.get_streams(icu_id, types=["latlng"])
-    # latlng stream: latitudes in 'data', longitudes in 'data2'
-    stream = next((s for s in raw if s["type"] == "latlng"), None)
-    if not stream:
+    from garmin import get_client
+
+    try:
+        client = get_client()
+        details = client.get_activity_details(int(garmin_id))
+        poly = details.get("geoPolylineDTO", {})
+        points = poly.get("polyline", [])
+        pairs = [
+            [p["lat"], p["lon"]]
+            for p in points
+            if p.get("lat") is not None and p.get("lon") is not None
+        ]
+        return jsonify(pairs)
+    except Exception:
         return jsonify([])
-    lats = stream.get("data") or []
-    lngs = stream.get("data2") or []
-    pairs = [
-        [lat, lng]
-        for lat, lng in zip(lats, lngs)
-        if lat is not None and lng is not None
-    ]
-    return jsonify(pairs)
 
 
-@app.route("/activities/<string:icu_id>/notes", methods=["POST"])
-def save_notes(icu_id: str):
+@app.route("/activities/<string:garmin_id>/notes", methods=["POST"])
+def save_notes(garmin_id: str):
     with get_session() as session:
         activity = session.exec(
-            select(Activity).where(Activity.icu_id == icu_id)
+            select(Activity).where(Activity.garmin_id == garmin_id)
         ).first()
         if not activity:
             return "Not found", 404
