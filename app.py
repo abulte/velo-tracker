@@ -9,6 +9,9 @@ from flask import Flask, render_template, redirect, url_for, request, jsonify
 from flask_fenrir import create_fenrir_bp, secure_app
 from sqlmodel import Session, create_engine, select
 
+from cli import sync_activities
+from models import Activity
+
 load_dotenv()
 
 app = Flask("velo-tracker")
@@ -37,8 +40,6 @@ def get_session():
 @click.option("--since", default=None, help="Start date YYYY-MM-DD (default: 1 year ago)")
 def cli_sync(since: str):
     """Sync cycling activities from Garmin Connect."""
-    from cli import sync_activities
-
     cutoff = (
         datetime.date.fromisoformat(since)
         if since
@@ -135,8 +136,6 @@ def list_activities():
 
 @app.route("/activities/sync", methods=["POST"])
 def sync_activities_route():
-    from cli import sync_activities
-
     oldest = request.form.get("since") or (
         datetime.date.today() - datetime.timedelta(days=7)
     ).isoformat()
@@ -187,67 +186,59 @@ def save_notes(garmin_id: str):
 @app.route("/api/performance-insights")
 def performance_insights():
     """API endpoint for performance insights data, secured by flask_fenrir."""
-    try:
-        with get_session() as session:
-            # Limit to last 2 years of data for performance
-            cutoff_date = datetime.datetime.now() - datetime.timedelta(days=730)
-            activities = session.exec(
-                select(Activity)
-                .where(Activity.start_date >= cutoff_date)
-                .order_by(Activity.start_date)
-            ).all()
+    with get_session() as session:
+        # Limit to last 2 years of data for performance
+        cutoff_date = datetime.datetime.now() - datetime.timedelta(days=730)
+        activities = session.exec(
+            select(Activity)
+            .where(Activity.start_date >= cutoff_date)
+            .order_by(Activity.start_date)
+        ).all()
 
-        # Group activities by month
-        by_month = defaultdict(list)
-        for activity in activities:
-            month_key = f"{activity.start_date.year}-{activity.start_date.month:02d}"
-            by_month[month_key].append(activity)
+    # Group activities by month
+    by_month = defaultdict(list)
+    for activity in activities:
+        month_key = f"{activity.start_date.year}-{activity.start_date.month:02d}"
+        by_month[month_key].append(activity)
 
-        insights = []
-        for month_key in sorted(by_month.keys()):
-            activities_in_month = by_month[month_key]
-            year, month = map(int, month_key.split('-'))
-            month_name = f"{calendar.month_abbr[month]} {year}"
-            
-            # Calculate metrics with better error handling
-            total_distance = sum(a.distance or 0 for a in activities_in_month) / 1000  # km
-            total_time = sum(a.moving_time or 0 for a in activities_in_month) / 3600  # hours
-            total_tss = sum(a.tss or 0 for a in activities_in_month)
-            
-            # Average power (weighted by time) - fix division by zero
-            power_activities = [(a.average_watts, a.moving_time) for a in activities_in_month 
-                              if a.average_watts and a.average_watts > 0 and a.moving_time and a.moving_time > 0]
-            
-            if power_activities:
-                power_time_sum = sum(power * time for power, time in power_activities)
-                total_power_time = sum(time for _, time in power_activities)
-                avg_power = power_time_sum / total_power_time if total_power_time > 0 else None
-            else:
-                avg_power = None
-            
-            # Average RPE - handle Garmin's 0-100 scale
-            rpe_values = [a.rpe / 10.0 for a in activities_in_month 
-                         if a.rpe is not None and a.rpe > 0]  # Convert from 0-100 to 0-10 scale
-            avg_rpe = sum(rpe_values) / len(rpe_values) if rpe_values else None
-            
-            insights.append({
-                'month': month_name,
-                'distance': round(total_distance, 1) if total_distance > 0 else 0,
-                'time': round(total_time, 1) if total_time > 0 else 0,
-                'tss': round(total_tss) if total_tss > 0 else 0,
-                'avgPower': round(avg_power) if avg_power and avg_power > 0 else None,
-                'avgRpe': round(avg_rpe, 1) if avg_rpe and avg_rpe > 0 else None,
-                'activities': len(activities_in_month)
-            })
+    insights = []
+    for month_key in sorted(by_month.keys()):
+        activities_in_month = by_month[month_key]
+        year, month = map(int, month_key.split('-'))
+        month_name = f"{calendar.month_abbr[month]} {year}"
+        
+        # Calculate metrics with better error handling
+        total_distance = sum(a.distance or 0 for a in activities_in_month) / 1000  # km
+        total_time = sum(a.moving_time or 0 for a in activities_in_month) / 3600  # hours
+        total_tss = sum(a.tss or 0 for a in activities_in_month)
+        
+        # Average power (weighted by time) - fix division by zero
+        power_activities = [(a.average_watts, a.moving_time) for a in activities_in_month 
+                          if a.average_watts and a.average_watts > 0 and a.moving_time and a.moving_time > 0]
+        
+        if power_activities:
+            power_time_sum = sum(power * time for power, time in power_activities)
+            total_power_time = sum(time for _, time in power_activities)
+            avg_power = power_time_sum / total_power_time if total_power_time > 0 else None
+        else:
+            avg_power = None
+        
+        # Average RPE - handle Garmin's 0-100 scale
+        rpe_values = [a.rpe / 10.0 for a in activities_in_month 
+                     if a.rpe is not None and a.rpe > 0]  # Convert from 0-100 to 0-10 scale
+        avg_rpe = sum(rpe_values) / len(rpe_values) if rpe_values else None
+        
+        insights.append({
+            'month': month_name,
+            'distance': round(total_distance, 1) if total_distance > 0 else 0,
+            'time': round(total_time, 1) if total_time > 0 else 0,
+            'tss': round(total_tss) if total_tss > 0 else 0,
+            'avgPower': round(avg_power) if avg_power and avg_power > 0 else None,
+            'avgRpe': round(avg_rpe, 1) if avg_rpe and avg_rpe > 0 else None,
+            'activities': len(activities_in_month)
+        })
 
-        return jsonify(insights)
-    
-    except (ValueError, TypeError) as e:
-        app.logger.error(f"Data processing error in performance_insights: {str(e)}")
-        return jsonify({'error': 'Failed to process performance data'}), 400
-    except Exception as e:
-        app.logger.error(f"Unexpected error in performance_insights: {str(e)}")
-        return jsonify({'error': 'Failed to load performance insights'}), 500
+    return jsonify(insights)
 
 
 @app.route("/health")
@@ -260,5 +251,3 @@ def health():
         return {"status": "unhealthy", "error": str(e)}, 500
 
 
-# Import models after engine is set up so Alembic can detect them
-from models import Activity  # noqa: E402, F401
