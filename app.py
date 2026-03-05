@@ -1,9 +1,11 @@
+import calendar
 import datetime
 import os
+from collections import defaultdict
 
 import click
 from dotenv import load_dotenv
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, render_template, redirect, url_for, request, jsonify
 from flask_fenrir import create_fenrir_bp, secure_app
 from sqlmodel import Session, create_engine, select
 
@@ -157,8 +159,6 @@ def show_activity(garmin_id: str):
 
 @app.route("/activities/<string:garmin_id>/streams")
 def activity_streams(garmin_id: str):
-    from flask import jsonify
-
     with get_session() as session:
         activity = session.exec(
             select(Activity).where(Activity.garmin_id == garmin_id)
@@ -186,14 +186,7 @@ def save_notes(garmin_id: str):
 
 @app.route("/api/performance-insights")
 def performance_insights():
-    from flask import jsonify, g
-    from flask_fenrir import require_auth
-    from collections import defaultdict
-    import calendar
-
-    # Ensure user is authenticated
-    require_auth()
-    
+    """API endpoint for performance insights data, secured by flask_fenrir."""
     try:
         with get_session() as session:
             # Limit to last 2 years of data for performance
@@ -249,8 +242,11 @@ def performance_insights():
 
         return jsonify(insights)
     
+    except (ValueError, TypeError) as e:
+        app.logger.error(f"Data processing error in performance_insights: {str(e)}")
+        return jsonify({'error': 'Failed to process performance data'}), 400
     except Exception as e:
-        app.logger.error(f"Error in performance_insights: {str(e)}")
+        app.logger.error(f"Unexpected error in performance_insights: {str(e)}")
         return jsonify({'error': 'Failed to load performance insights'}), 500
 
 
