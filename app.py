@@ -184,6 +184,56 @@ def save_notes(garmin_id: str):
     return render_template("activities/_notes.html", activity=activity)
 
 
+@app.route("/api/performance-insights")
+def performance_insights():
+    from flask import jsonify
+    from collections import defaultdict
+    import calendar
+
+    with get_session() as session:
+        activities = session.exec(
+            select(Activity).order_by(Activity.start_date)
+        ).all()
+
+    # Group activities by month
+    by_month = defaultdict(list)
+    for activity in activities:
+        month_key = f"{activity.start_date.year}-{activity.start_date.month:02d}"
+        by_month[month_key].append(activity)
+
+    insights = []
+    for month_key in sorted(by_month.keys()):
+        activities_in_month = by_month[month_key]
+        year, month = map(int, month_key.split('-'))
+        month_name = f"{calendar.month_abbr[month]} {year}"
+        
+        # Calculate metrics
+        total_distance = sum(a.distance or 0 for a in activities_in_month) / 1000  # km
+        total_time = sum(a.moving_time or 0 for a in activities_in_month) / 3600  # hours
+        total_tss = sum(a.tss or 0 for a in activities_in_month)
+        
+        # Average power (weighted by time)
+        power_time_sum = sum((a.average_watts or 0) * (a.moving_time or 0) for a in activities_in_month)
+        total_time_seconds = sum(a.moving_time or 0 for a in activities_in_month)
+        avg_power = power_time_sum / total_time_seconds if total_time_seconds > 0 else None
+        
+        # Average RPE
+        rpe_values = [a.rpe for a in activities_in_month if a.rpe is not None]
+        avg_rpe = sum(rpe_values) / len(rpe_values) if rpe_values else None
+        
+        insights.append({
+            'month': month_name,
+            'distance': round(total_distance, 1),
+            'time': round(total_time, 1),
+            'tss': round(total_tss),
+            'avgPower': round(avg_power) if avg_power else None,
+            'avgRpe': round(avg_rpe, 1) if avg_rpe else None,
+            'activities': len(activities_in_month)
+        })
+
+    return jsonify(insights)
+
+
 @app.route("/health")
 def health():
     try:

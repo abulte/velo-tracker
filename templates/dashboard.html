@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Dashboard – Velo Tracker{% endblock %}
 
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
 {% macro fmt_time(seconds) %}{{ (seconds // 3600)|int }}h {{ "%02d"|format((seconds % 3600) // 60) }}m{% endmacro %}
 
 {% macro recap_table(rows) %}
@@ -47,9 +51,274 @@
 {% block content %}
 <h1>Dashboard</h1>
 
+<section class="performance-insights">
+    <h2>📊 Performance Insights</h2>
+    <div id="insights-loading" class="loading-state">Loading performance data...</div>
+    <div id="insights-error" class="error-state" style="display: none;">Failed to load performance insights.</div>
+    <div id="insights-charts" style="display: none;">
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3>🚴 Training Volume</h3>
+                <div class="chart-tabs">
+                    <button class="chart-tab active" onclick="showChart('volume-distance')">Distance</button>
+                    <button class="chart-tab" onclick="showChart('volume-time')">Time</button>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="volume-distance-chart" class="chart-canvas"></canvas>
+                    <canvas id="volume-time-chart" class="chart-canvas" style="display: none;"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>💪 Training Stress Score</h3>
+                <div class="chart-wrapper">
+                    <canvas id="tss-chart" class="chart-canvas"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>⚡ Power Progression</h3>
+                <div class="chart-wrapper">
+                    <canvas id="power-chart" class="chart-canvas"></canvas>
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>🎯 Effort & Recovery</h3>
+                <div class="chart-wrapper">
+                    <canvas id="rpe-chart" class="chart-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
 <h2>By Month</h2>
 {{ recap_table(months) }}
 
 <h2>By Week</h2>
 {{ recap_table(weeks) }}
+
+<script>
+let performanceData = [];
+let charts = {};
+
+async function loadPerformanceInsights() {
+    try {
+        const response = await fetch('/api/performance-insights');
+        if (!response.ok) throw new Error('Failed to fetch');
+        performanceData = await response.json();
+        
+        if (performanceData.length === 0) {
+            document.getElementById('insights-loading').innerHTML = '<p>No activity data available yet. Start logging your rides to see performance insights!</p>';
+            return;
+        }
+        
+        document.getElementById('insights-loading').style.display = 'none';
+        document.getElementById('insights-charts').style.display = 'block';
+        
+        createCharts();
+    } catch (error) {
+        document.getElementById('insights-loading').style.display = 'none';
+        document.getElementById('insights-error').style.display = 'block';
+        console.error('Error loading performance insights:', error);
+    }
+}
+
+function createCharts() {
+    const months = performanceData.map(d => d.month);
+    const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const textColor = isDarkMode ? '#e0e0e0' : '#333';
+    const gridColor = isDarkMode ? '#333' : '#e0e0e0';
+    
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: { 
+                backgroundColor: isDarkMode ? '#333' : '#fff',
+                titleColor: textColor,
+                bodyColor: textColor,
+                borderColor: gridColor,
+                borderWidth: 1
+            }
+        },
+        scales: {
+            x: { 
+                ticks: { color: textColor },
+                grid: { color: gridColor }
+            },
+            y: { 
+                ticks: { color: textColor },
+                grid: { color: gridColor }
+            }
+        }
+    };
+
+    // Distance chart
+    charts.volumeDistance = new Chart(document.getElementById('volume-distance-chart'), {
+        type: 'line',
+        data: {
+            labels: months,
+            datasets: [{
+                data: performanceData.map(d => d.distance),
+                borderColor: '#4CAF50',
+                backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            ...chartOptions,
+            scales: {
+                ...chartOptions.scales,
+                y: { 
+                    ...chartOptions.scales.y,
+                    title: { display: true, text: 'Distance (km)', color: textColor }
+                }
+            }
+        }
+    });
+
+    // Time chart
+    charts.volumeTime = new Chart(document.getElementById('volume-time-chart'), {
+        type: 'line',
+        data: {
+            labels: months,
+            datasets: [{
+                data: performanceData.map(d => d.time),
+                borderColor: '#2196F3',
+                backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            ...chartOptions,
+            scales: {
+                ...chartOptions.scales,
+                y: { 
+                    ...chartOptions.scales.y,
+                    title: { display: true, text: 'Time (hours)', color: textColor }
+                }
+            }
+        }
+    });
+
+    // TSS chart
+    charts.tss = new Chart(document.getElementById('tss-chart'), {
+        type: 'bar',
+        data: {
+            labels: months,
+            datasets: [{
+                data: performanceData.map(d => d.tss),
+                backgroundColor: 'rgba(255, 193, 7, 0.8)',
+                borderColor: '#FFC107',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            ...chartOptions,
+            scales: {
+                ...chartOptions.scales,
+                y: { 
+                    ...chartOptions.scales.y,
+                    title: { display: true, text: 'TSS', color: textColor },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    // Power chart
+    const powerData = performanceData.filter(d => d.avgPower !== null);
+    if (powerData.length > 0) {
+        charts.power = new Chart(document.getElementById('power-chart'), {
+            type: 'line',
+            data: {
+                labels: powerData.map(d => d.month),
+                datasets: [{
+                    data: powerData.map(d => d.avgPower),
+                    borderColor: '#FF5722',
+                    backgroundColor: 'rgba(255, 87, 34, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                ...chartOptions,
+                scales: {
+                    ...chartOptions.scales,
+                    y: { 
+                        ...chartOptions.scales.y,
+                        title: { display: true, text: 'Average Power (W)', color: textColor }
+                    }
+                }
+            }
+        });
+    } else {
+        document.getElementById('power-chart').parentElement.innerHTML = 
+            '<p class="no-data">No power data available. Connect a power meter to see power progression!</p>';
+    }
+
+    // RPE chart
+    const rpeData = performanceData.filter(d => d.avgRpe !== null);
+    if (rpeData.length > 0) {
+        charts.rpe = new Chart(document.getElementById('rpe-chart'), {
+            type: 'line',
+            data: {
+                labels: rpeData.map(d => d.month),
+                datasets: [{
+                    data: rpeData.map(d => d.avgRpe),
+                    borderColor: '#9C27B0',
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                ...chartOptions,
+                scales: {
+                    ...chartOptions.scales,
+                    y: { 
+                        ...chartOptions.scales.y,
+                        title: { display: true, text: 'Average RPE', color: textColor },
+                        min: 0,
+                        max: 10
+                    }
+                }
+            }
+        });
+    } else {
+        document.getElementById('rpe-chart').parentElement.innerHTML = 
+            '<p class="no-data">No RPE data available. Rate your rides to track effort trends!</p>';
+    }
+}
+
+function showChart(chartType) {
+    // Update tab states
+    document.querySelectorAll('.chart-tab').forEach(tab => tab.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Show/hide canvases
+    document.querySelectorAll('.chart-canvas').forEach(canvas => canvas.style.display = 'none');
+    document.getElementById(chartType + '-chart').style.display = 'block';
+}
+
+// Load insights when page loads
+document.addEventListener('DOMContentLoaded', loadPerformanceInsights);
+
+// Handle dark mode changes
+if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (Object.keys(charts).length > 0) {
+            // Recreate charts with new theme
+            Object.values(charts).forEach(chart => chart.destroy());
+            charts = {};
+            createCharts();
+        }
+    });
+}
+</script>
 {% endblock %}

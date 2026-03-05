@@ -67,3 +67,125 @@ table {
 .rpe-medium { background: #FFC107; color: #333; } /* 4-6 */
 .rpe-hard   { background: #FF7043; }   /* 7-8 */
 .rpe-max    { background: #e53935; }   /* 9-10 */
+
+/* Performance Insights */
+.performance-insights {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--standard-border-radius);
+    background: var(--bg);
+}
+
+.performance-insights h2 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    font-size: 1.8rem;
+}
+
+.loading-state, .error-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-light);
+    font-style: italic;
+}
+
+.error-state {
+    color: var(--code);
+}
+
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.chart-container {
+    background: var(--accent-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--standard-border-radius);
+    padding: 1.5rem;
+}
+
+.chart-container h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1.2rem;
+    color: var(--text);
+}
+
+.chart-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.chart-tab {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.chart-tab:hover {
+    background: var(--accent-bg);
+}
+
+.chart-tab.active {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+}
+
+.chart-wrapper {
+    position: relative;
+    height: 250px;
+}
+
+.chart-canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.no-data {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-light);
+    font-style: italic;
+    height: 250px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .performance-insights {
+        padding: 1rem;
+    }
+    
+    .chart-container {
+        padding: 1rem;
+    }
+    
+    .chart-wrapper {
+        height: 200px;
+    }
+}
+
+@media (max-width: 480px) {
+    .chart-tabs {
+        flex-direction: column;
+    }
+    
+    .chart-tab {
+        text-align: center;
+    }
+}
