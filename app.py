@@ -251,3 +251,7 @@ def health():
         return {"status": "unhealthy", "error": str(e)}, 500
 
 
+# Import models after engine is set up so Alembic can detect them
+from models import Activity  # noqa: E402, F401
+
+
