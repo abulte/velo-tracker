@@ -59,34 +59,34 @@
         <div class="charts-grid">
             <div class="chart-container">
                 <h3>🚴 Training Volume</h3>
-                <div class="chart-tabs">
-                    <button class="chart-tab active" onclick="showChart('volume-distance')">Distance</button>
-                    <button class="chart-tab" onclick="showChart('volume-time')">Time</button>
+                <div class="chart-tabs" role="tablist" aria-label="Training volume chart type">
+                    <button class="chart-tab active" role="tab" aria-selected="true" onclick="showChart('volume-distance')" tabindex="0">Distance</button>
+                    <button class="chart-tab" role="tab" aria-selected="false" onclick="showChart('volume-time')" tabindex="-1">Time</button>
                 </div>
                 <div class="chart-wrapper">
-                    <canvas id="volume-distance-chart" class="chart-canvas"></canvas>
-                    <canvas id="volume-time-chart" class="chart-canvas" style="display: none;"></canvas>
+                    <canvas id="volume-distance-chart" class="chart-canvas" role="img" aria-label="Training volume by distance over time"></canvas>
+                    <canvas id="volume-time-chart" class="chart-canvas" style="display: none;" role="img" aria-label="Training volume by time over time"></canvas>
                 </div>
             </div>
             
             <div class="chart-container">
                 <h3>💪 Training Stress Score</h3>
                 <div class="chart-wrapper">
-                    <canvas id="tss-chart" class="chart-canvas"></canvas>
+                    <canvas id="tss-chart" class="chart-canvas" role="img" aria-label="Training Stress Score progression over time"></canvas>
                 </div>
             </div>
             
             <div class="chart-container">
                 <h3>⚡ Power Progression</h3>
                 <div class="chart-wrapper">
-                    <canvas id="power-chart" class="chart-canvas"></canvas>
+                    <canvas id="power-chart" class="chart-canvas" role="img" aria-label="Average power progression over time"></canvas>
                 </div>
             </div>
             
             <div class="chart-container">
                 <h3>🎯 Effort & Recovery</h3>
                 <div class="chart-wrapper">
-                    <canvas id="rpe-chart" class="chart-canvas"></canvas>
+                    <canvas id="rpe-chart" class="chart-canvas" role="img" aria-label="Rating of Perceived Exertion trends over time"></canvas>
                 </div>
             </div>
         </div>
@@ -104,28 +104,52 @@ let performanceData = [];
 let charts = {};
 
 async function loadPerformanceInsights() {
+    const loadingEl = document.getElementById('insights-loading');
+    const errorEl = document.getElementById('insights-error');
+    const chartsEl = document.getElementById('insights-charts');
+    
     try {
-        const response = await fetch('/api/performance-insights');
-        if (!response.ok) throw new Error('Failed to fetch');
+        const response = await fetch('/api/performance-insights', {
+            headers: {
+                'Accept': 'application/json',
+            }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         performanceData = await response.json();
         
+        if (!Array.isArray(performanceData)) {
+            throw new Error('Invalid data format received');
+        }
+        
         if (performanceData.length === 0) {
-            document.getElementById('insights-loading').innerHTML = '<p>No activity data available yet. Start logging your rides to see performance insights!</p>';
+            loadingEl.innerHTML = '<p>No activity data available yet. Start logging your rides to see performance insights!</p>';
             return;
         }
         
-        document.getElementById('insights-loading').style.display = 'none';
-        document.getElementById('insights-charts').style.display = 'block';
+        loadingEl.style.display = 'none';
+        chartsEl.style.display = 'block';
         
         createCharts();
     } catch (error) {
-        document.getElementById('insights-loading').style.display = 'none';
-        document.getElementById('insights-error').style.display = 'block';
+        loadingEl.style.display = 'none';
+        errorEl.style.display = 'block';
+        errorEl.innerHTML = `<p>Failed to load performance insights: ${error.message}</p>
+                            <button onclick="loadPerformanceInsights()" style="margin-top: 1rem;">Retry</button>`;
         console.error('Error loading performance insights:', error);
     }
 }
 
 function createCharts() {
+    if (!performanceData || performanceData.length === 0) {
+        console.warn('No performance data available for charting');
+        return;
+    }
+    
     const months = performanceData.map(d => d.month);
     const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     const textColor = isDarkMode ? '#e0e0e0' : '#333';
@@ -297,28 +321,53 @@ function createCharts() {
 }
 
 function showChart(chartType) {
-    // Update tab states
-    document.querySelectorAll('.chart-tab').forEach(tab => tab.classList.remove('active'));
-    event.target.classList.add('active');
+    // Update tab states and accessibility attributes
+    document.querySelectorAll('.chart-tab').forEach(tab => {
+        tab.classList.remove('active');
+        tab.setAttribute('aria-selected', 'false');
+        tab.setAttribute('tabindex', '-1');
+    });
     
-    // Show/hide canvases
-    document.querySelectorAll('.chart-canvas').forEach(canvas => canvas.style.display = 'none');
+    event.target.classList.add('active');
+    event.target.setAttribute('aria-selected', 'true');
+    event.target.setAttribute('tabindex', '0');
+    
+    // Show/hide canvases in the volume chart container only
+    const volumeContainer = event.target.closest('.chart-container');
+    volumeContainer.querySelectorAll('.chart-canvas').forEach(canvas => canvas.style.display = 'none');
     document.getElementById(chartType + '-chart').style.display = 'block';
 }
 
 // Load insights when page loads
 document.addEventListener('DOMContentLoaded', loadPerformanceInsights);
 
-// Handle dark mode changes
+// Handle dark mode changes and cleanup
 if (window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-        if (Object.keys(charts).length > 0) {
-            // Recreate charts with new theme
-            Object.values(charts).forEach(chart => chart.destroy());
-            charts = {};
-            createCharts();
-        }
+        recreateChartsWithTheme();
     });
 }
+
+function recreateChartsWithTheme() {
+    if (Object.keys(charts).length > 0 && performanceData.length > 0) {
+        // Properly destroy existing charts to prevent memory leaks
+        Object.values(charts).forEach(chart => {
+            if (chart && typeof chart.destroy === 'function') {
+                chart.destroy();
+            }
+        });
+        charts = {};
+        createCharts();
+    }
+}
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    Object.values(charts).forEach(chart => {
+        if (chart && typeof chart.destroy === 'function') {
+            chart.destroy();
+        }
+    });
+});
 </script>
 {% endblock %}
