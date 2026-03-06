@@ -84,8 +84,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 {
                     type: 'line',
-                    label: 'Cumulative TSS',
-                    data: weeklyData.cumulativeTss,
+                    label: 'Weekly TSS',
+                    data: weeklyData.weeklyTss,
                     borderColor: 'rgba(255, 99, 132, 1)',
                     backgroundColor: 'rgba(255, 99, 132, 0.2)',
                     borderWidth: 2,
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     position: 'right',
                     title: {
                         display: true,
-                        text: 'Cumulative TSS'
+                        text: 'Weekly TSS'
                     },
                     grid: {
                         drawOnChartArea: false,
@@ -124,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
             plugins: {
                 title: {
                     display: true,
-                    text: 'Weekly Distance and Cumulative TSS'
+                    text: 'Weekly Distance and Weekly TSS'
                 },
                 legend: {
                     display: true

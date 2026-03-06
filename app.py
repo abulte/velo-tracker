@@ -118,24 +118,22 @@ def dashboard():
     sorted_weeks = sorted(by_week.items())
     chart_labels = []
     chart_distance = []
-    chart_cumulative_tss = []
-    cumulative_tss = 0
+    chart_weekly_tss = []
     
     for (year, week), activities in sorted_weeks:
         # Calculate weekly distance in km
         weekly_distance = sum(a.distance or 0 for a in activities) / 1000
-        # Calculate weekly TSS and add to cumulative
+        # Calculate weekly TSS (not cumulative)
         weekly_tss = sum(a.tss or 0 for a in activities)
-        cumulative_tss += weekly_tss
         
         chart_labels.append(_week_label(year, week))
         chart_distance.append(weekly_distance)
-        chart_cumulative_tss.append(cumulative_tss)
+        chart_weekly_tss.append(weekly_tss)
     
     chart_data = {
         "labels": chart_labels,
         "distance": chart_distance,
-        "cumulativeTss": chart_cumulative_tss
+        "weeklyTss": chart_weekly_tss
     }
 
     return render_template("dashboard.html", weeks=weeks, months=months, chart_data=chart_data)
