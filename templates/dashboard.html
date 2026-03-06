@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Dashboard – Velo Tracker{% endblock %}
 
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
 {% macro fmt_time(seconds) %}{{ (seconds // 3600)|int }}h {{ "%02d"|format((seconds % 3600) // 60) }}m{% endmacro %}
 
 {% macro recap_table(rows) %}
@@ -47,9 +51,87 @@
 {% block content %}
 <h1>Dashboard</h1>
 
+<h2>Weekly Progress</h2>
+<div style="width: 100%; height: 400px; margin-bottom: 2rem;">
+    <canvas id="weeklyChart"></canvas>
+</div>
+
 <h2>By Month</h2>
 {{ recap_table(months) }}
 
 <h2>By Week</h2>
 {{ recap_table(weeks) }}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Prepare weekly data for chart
+    const weeklyData = {{ chart_data|tojson }};
+    
+    const ctx = document.getElementById('weeklyChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: weeklyData.labels,
+            datasets: [
+                {
+                    type: 'bar',
+                    label: 'Distance (km)',
+                    data: weeklyData.distance,
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    yAxisID: 'y'
+                },
+                {
+                    type: 'line',
+                    label: 'Weekly TSS',
+                    data: weeklyData.weeklyTss,
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: 'Distance (km)'
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: {
+                        display: true,
+                        text: 'Weekly TSS'
+                    },
+                    grid: {
+                        drawOnChartArea: false,
+                    }
+                }
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Weekly Distance and Weekly TSS'
+                },
+                legend: {
+                    display: true
+                }
+            }
+        }
+    });
+});
+</script>
 {% endblock %}
