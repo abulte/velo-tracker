@@ -68,51 +68,18 @@ table {
 .rpe-hard   { background: #FF7043; }   /* 7-8 */
 .rpe-max    { background: #e53935; }   /* 9-10 */
 
-/* Performance Insights - minimal styles leveraging simple.css */
+/* Performance Insights - minimal styles using simple.css defaults */
 .charts-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1rem;
     margin: 1rem 0;
 }
 
-.chart-container {
-    border: 1px solid var(--border);
-    border-radius: var(--standard-border-radius);
-    padding: 1rem;
-    background: var(--accent-bg);
-}
-
-.chart-tabs {
-    margin-bottom: 1rem;
-}
-
-.chart-tab {
-    margin-right: 0.5rem;
-    padding: 0.25rem 0.75rem;
-    font-size: 0.9rem;
-}
-
-.chart-tab.active {
-    background: var(--accent);
-    color: var(--bg);
-}
-
 .chart-wrapper {
     height: 250px;
-    position: relative;
-}
-
-.loading-state, .error-state, .no-data {
-    text-align: center;
-    padding: 2rem;
-    font-style: italic;
 }
 
 @media (max-width: 768px) {
-    .charts-grid {
-        grid-template-columns: 1fr;
-    }
     .chart-wrapper {
         height: 200px;
     }

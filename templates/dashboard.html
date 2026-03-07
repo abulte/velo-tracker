@@ -58,42 +58,42 @@
 
 <section class="performance-insights">
     <h2>📊 Performance Insights</h2>
-    <div id="insights-loading" class="loading-state">Loading performance data...</div>
-    <div id="insights-error" class="error-state" style="display: none;">Failed to load performance insights.</div>
+    <p id="insights-loading">Loading performance data...</p>
+    <p id="insights-error" style="display: none;">Failed to load performance insights.</p>
     <div id="insights-charts" style="display: none;">
         <div class="charts-grid">
-            <div class="chart-container">
+            <section>
                 <h3>🚴 Training Volume</h3>
-                <div class="chart-tabs" role="tablist" aria-label="Training volume chart type">
-                    <button class="chart-tab active" role="tab" aria-selected="true" onclick="showChart('volume-distance')" tabindex="0">Distance</button>
-                    <button class="chart-tab" role="tab" aria-selected="false" onclick="showChart('volume-time')" tabindex="-1">Time</button>
-                </div>
+                <p role="tablist" aria-label="Training volume chart type">
+                    <button onclick="showChart('volume-distance')" tabindex="0">Distance</button>
+                    <button onclick="showChart('volume-time')" tabindex="-1">Time</button>
+                </p>
                 <div class="chart-wrapper">
-                    <canvas id="volume-distance-chart" class="chart-canvas" role="img" aria-label="Training volume by distance over time"></canvas>
-                    <canvas id="volume-time-chart" class="chart-canvas" style="display: none;" role="img" aria-label="Training volume by time over time"></canvas>
+                    <canvas id="volume-distance-chart" role="img" aria-label="Training volume by distance over time"></canvas>
+                    <canvas id="volume-time-chart" style="display: none;" role="img" aria-label="Training volume by time over time"></canvas>
                 </div>
-            </div>
+            </section>
             
-            <div class="chart-container">
+            <section>
                 <h3>💪 Training Stress Score</h3>
                 <div class="chart-wrapper">
-                    <canvas id="tss-chart" class="chart-canvas" role="img" aria-label="Training Stress Score progression over time"></canvas>
+                    <canvas id="tss-chart" role="img" aria-label="Training Stress Score progression over time"></canvas>
                 </div>
-            </div>
+            </section>
             
-            <div class="chart-container">
+            <section>
                 <h3>⚡ Power Progression</h3>
                 <div class="chart-wrapper">
-                    <canvas id="power-chart" class="chart-canvas" role="img" aria-label="Average power progression over time"></canvas>
+                    <canvas id="power-chart" role="img" aria-label="Average power progression over time"></canvas>
                 </div>
-            </div>
+            </section>
             
-            <div class="chart-container">
+            <section>
                 <h3>🎯 Effort & Recovery</h3>
                 <div class="chart-wrapper">
-                    <canvas id="rpe-chart" class="chart-canvas" role="img" aria-label="Rating of Perceived Exertion trends over time"></canvas>
+                    <canvas id="rpe-chart" role="img" aria-label="Rating of Perceived Exertion trends over time"></canvas>
                 </div>
-            </div>
+            </section>
         </div>
     </div>
 </section>
@@ -362,7 +362,7 @@ function createCharts() {
         });
     } else {
         document.getElementById('power-chart').parentElement.innerHTML = 
-            '<p class="no-data">No power data available. Connect a power meter to see power progression!</p>';
+            '<p><em>No power data available. Connect a power meter to see power progression!</em></p>';
     }
 
     // RPE chart
@@ -395,25 +395,24 @@ function createCharts() {
         });
     } else {
         document.getElementById('rpe-chart').parentElement.innerHTML = 
-            '<p class="no-data">No RPE data available. Rate your rides to track effort trends!</p>';
+            '<p><em>No RPE data available. Rate your rides to track effort trends!</em></p>';
     }
 }
 
 function showChart(chartType) {
-    // Update tab states and accessibility attributes
-    document.querySelectorAll('.chart-tab').forEach(tab => {
-        tab.classList.remove('active');
-        tab.setAttribute('aria-selected', 'false');
-        tab.setAttribute('tabindex', '-1');
+    // Update button states and accessibility attributes
+    const buttons = event.target.parentElement.querySelectorAll('button');
+    buttons.forEach(btn => {
+        btn.setAttribute('aria-selected', 'false');
+        btn.setAttribute('tabindex', '-1');
     });
     
-    event.target.classList.add('active');
     event.target.setAttribute('aria-selected', 'true');
     event.target.setAttribute('tabindex', '0');
     
-    // Show/hide canvases in the volume chart container only
-    const volumeContainer = event.target.closest('.chart-container');
-    volumeContainer.querySelectorAll('.chart-canvas').forEach(canvas => canvas.style.display = 'none');
+    // Show/hide canvases in the volume section only
+    const volumeSection = event.target.closest('section');
+    volumeSection.querySelectorAll('canvas').forEach(canvas => canvas.style.display = 'none');
     document.getElementById(chartType + '-chart').style.display = 'block';
 }
 
