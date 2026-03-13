@@ -3,6 +3,9 @@
 
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 {% endblock %}
 
 {% macro fmt_time(seconds) %}{{ (seconds // 3600)|int }}h {{ "%02d"|format((seconds % 3600) // 60) }}m{% endmacro %}
@@ -56,6 +59,9 @@
     <canvas id="weeklyChart"></canvas>
 </div>
 
+<h2>Route Heatmap</h2>
+<div id="heatmap" style="height: 400px; margin-bottom: 2rem;"></div>
+
 <h2>By Month</h2>
 {{ recap_table(months) }}
 
@@ -64,7 +70,7 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Prepare weekly data for chart
+    // Weekly chart functionality
     const weeklyData = {{ chart_data|tojson }};
     
     const ctx = document.getElementById('weeklyChart').getContext('2d');
@@ -132,6 +138,78 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+    
+    // Heatmap functionality
+    const heatmapDiv = document.getElementById('heatmap');
+    const heatmap = L.map('heatmap');
+
+    // Add tile layer with theme support
+    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {
+        attribution: '© OpenStreetMap contributors © CARTO',
+        subdomains: 'abcd',
+        maxZoom: 19,
+    }).addTo(heatmap);
+
+    // Fetch and display heatmap data
+    fetch('/heatmap/data')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            if (data && Array.isArray(data) && data.length > 0) {
+                // Validate data points before creating heatmap
+                const validPoints = data.filter(point => 
+                    Array.isArray(point) && point.length >= 3 &&
+                    typeof point[0] === 'number' && typeof point[1] === 'number' && 
+                    typeof point[2] === 'number' &&
+                    point[0] >= -90 && point[0] <= 90 &&
+                    point[1] >= -180 && point[1] <= 180 &&
+                    point[2] > 0
+                );
+                
+                if (validPoints.length > 0) {
+                    // Create heatmap layer
+                    const heat = L.heatLayer(validPoints, {
+                        radius: 8,
+                        blur: 5,
+                        maxZoom: 18,
+                        gradient: {
+                            0.0: '#0000ff',  // Blue for low usage
+                            0.3: '#00ffff',  // Cyan 
+                            0.5: '#00ff00',  // Green
+                            0.7: '#ffff00',  // Yellow  
+                            0.9: '#ff8000',  // Orange
+                            1.0: '#ff0000'   // Red for high usage
+                        }
+                    }).addTo(heatmap);
+
+                    // Fit map to heatmap bounds with better padding
+                    const coords = validPoints.map(point => [point[0], point[1]]);
+                    const group = new L.featureGroup(coords.map(coord => L.marker(coord)));
+                    heatmap.fitBounds(group.getBounds(), { 
+                        padding: [30, 30],
+                        maxZoom: 13
+                    });
+                } else {
+                    heatmapDiv.innerHTML = '<p style="text-align: center; padding: 50px; color: #666;">No valid route data available for heatmap.</p>';
+                }
+            } else {
+                // Show message when no data available
+                heatmapDiv.innerHTML = '<p style="text-align: center; padding: 50px; color: #666;">No route data available for heatmap. Sync some activities with GPS tracks!</p>';
+            }
+        })
+        .catch(error => {
+            console.error('Error loading heatmap data:', error);
+            heatmapDiv.innerHTML = `<p style="text-align: center; padding: 50px; color: #666;">Failed to load heatmap data: ${error.message}</p>`;
+        });
 });
 </script>
 {% endblock %}

@@ -206,6 +206,48 @@ def save_notes(garmin_id: str):
     return render_template("activities/_notes.html", activity=activity)
 
 
+@app.route("/heatmap/data")
+def heatmap_data():
+    from flask import jsonify
+
+    try:
+        with get_session() as session:
+            activities = session.exec(
+                select(Activity).where(Activity.polyline.isnot(None))
+            ).all()
+        
+        # Build heatmap data: coordinate frequency mapping
+        coord_frequency = {}
+        
+        for activity in activities:
+            if activity.polyline and isinstance(activity.polyline, list):
+                for point in activity.polyline:
+                    # Validate coordinate data
+                    if (isinstance(point, (list, tuple)) and len(point) >= 2 
+                        and isinstance(point[0], (int, float)) and isinstance(point[1], (int, float))
+                        and -90 <= point[0] <= 90 and -180 <= point[1] <= 180):
+                        
+                        lat, lon = point[0], point[1]
+                        # Round coordinates to reduce precision for frequency counting
+                        rounded_lat = round(lat, 4)  # ~11m precision
+                        rounded_lon = round(lon, 4)
+                        coord_key = (rounded_lat, rounded_lon)
+                        coord_frequency[coord_key] = coord_frequency.get(coord_key, 0) + 1
+        
+        # Convert to heatmap format: [lat, lon, intensity]
+        heatmap_points = [
+            [coord[0], coord[1], frequency] 
+            for coord, frequency in coord_frequency.items()
+            if frequency > 0  # Ensure positive frequency
+        ]
+        
+        return jsonify(heatmap_points)
+    
+    except Exception as e:
+        app.logger.error(f"Error generating heatmap data: {str(e)}")
+        return jsonify({"error": "Failed to generate heatmap data"}), 500
+
+
 @app.route("/health")
 def health():
     try:
