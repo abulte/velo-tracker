@@ -206,6 +206,36 @@ def save_notes(garmin_id: str):
     return render_template("activities/_notes.html", activity=activity)
 
 
+@app.route("/heatmap/data")
+def heatmap_data():
+    from flask import jsonify
+
+    with get_session() as session:
+        activities = session.exec(
+            select(Activity).where(Activity.polyline.is_not(None))
+        ).all()
+    
+    # Build heatmap data: coordinate frequency mapping
+    coord_frequency = {}
+    
+    for activity in activities:
+        if activity.polyline:
+            for lat, lon in activity.polyline:
+                # Round coordinates to reduce precision for frequency counting
+                rounded_lat = round(lat, 4)  # ~11m precision
+                rounded_lon = round(lon, 4)
+                coord_key = (rounded_lat, rounded_lon)
+                coord_frequency[coord_key] = coord_frequency.get(coord_key, 0) + 1
+    
+    # Convert to heatmap format: [lat, lon, intensity]
+    heatmap_points = [
+        [coord[0], coord[1], frequency] 
+        for coord, frequency in coord_frequency.items()
+    ]
+    
+    return jsonify(heatmap_points)
+
+
 @app.route("/health")
 def health():
     try:
