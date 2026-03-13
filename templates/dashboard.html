@@ -176,10 +176,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 );
                 
                 if (validPoints.length > 0) {
-                    // Create heatmap layer with better settings
+                    // Create heatmap layer
                     const heat = L.heatLayer(validPoints, {
-                        radius: 15,
-                        blur: 10,
+                        radius: 8,
+                        blur: 5,
                         maxZoom: 18,
                         gradient: {
                             0.0: '#0000ff',  // Blue for low usage
