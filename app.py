@@ -213,7 +213,7 @@ def heatmap_data():
     try:
         with get_session() as session:
             activities = session.exec(
-                select(Activity).where(Activity.polyline.is_not(None))
+                select(Activity).where(Activity.polyline.isnot(None))
             ).all()
         
         # Build heatmap data: coordinate frequency mapping

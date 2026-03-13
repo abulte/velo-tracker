@@ -59,15 +59,14 @@
     <canvas id="weeklyChart"></canvas>
 </div>
 
+<h2>Route Heatmap</h2>
+<div id="heatmap" style="height: 400px; margin-bottom: 2rem;"></div>
+
 <h2>By Month</h2>
 {{ recap_table(months) }}
 
 <h2>By Week</h2>
 {{ recap_table(weeks) }}
-
-<h2>Route Heatmap</h2>
-<p>Shows all your cycling routes with intensity based on usage frequency.</p>
-<div id="heatmap" style="height: 400px; margin: 20px 0;"></div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -177,22 +176,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 );
                 
                 if (validPoints.length > 0) {
-                    // Create heatmap layer
+                    // Create heatmap layer with better settings
                     const heat = L.heatLayer(validPoints, {
-                        radius: 10,
-                        blur: 8,
-                        maxZoom: 12,
+                        radius: 15,
+                        blur: 10,
+                        maxZoom: 18,
                         gradient: {
-                            0.0: '#313695',
-                            0.1: '#4575b4', 
-                            0.2: '#74add1',
-                            0.3: '#abd9e9',
-                            0.4: '#e0f3f8',
-                            0.5: '#fee090',
-                            0.6: '#fdae61',
-                            0.7: '#f46d43',
-                            0.8: '#d73027',
-                            1.0: '#a50026'
+                            0.0: '#0000ff',  // Blue for low usage
+                            0.3: '#00ffff',  // Cyan 
+                            0.5: '#00ff00',  // Green
+                            0.7: '#ffff00',  // Yellow  
+                            0.9: '#ff8000',  // Orange
+                            1.0: '#ff0000'   // Red for high usage
                         }
                     }).addTo(heatmap);
 
