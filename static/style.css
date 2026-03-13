@@ -26,10 +26,22 @@ main {
     border-radius: var(--standard-border-radius);
     margin-bottom: 1.5rem;
     background: #f2f1ec;
+    border: 1px solid #d4d4d8;
+    box-sizing: border-box;
 }
 
 @media (prefers-color-scheme: dark) {
-    #map, #heatmap { background: #0e0e0e; }
+    #map, #heatmap { 
+        background: #0e0e0e; 
+        border-color: #374151;
+    }
+}
+
+@media (max-width: 640px) {
+    #map, #heatmap {
+        height: 300px;
+        margin-bottom: 1rem;
+    }
 }
 
 

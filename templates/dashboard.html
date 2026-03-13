@@ -154,33 +154,57 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Fetch and display heatmap data
     fetch('/heatmap/data')
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
         .then(data => {
-            if (data && data.length > 0) {
-                // Create heatmap layer
-                const heat = L.heatLayer(data, {
-                    radius: 8,
-                    blur: 6,
-                    maxZoom: 10,
-                    gradient: {
-                        0.0: '#313695',
-                        0.1: '#4575b4', 
-                        0.2: '#74add1',
-                        0.3: '#abd9e9',
-                        0.4: '#e0f3f8',
-                        0.5: '#fee090',
-                        0.6: '#fdae61',
-                        0.7: '#f46d43',
-                        0.8: '#d73027',
-                        1.0: '#a50026'
-                    }
-                }).addTo(heatmap);
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            if (data && Array.isArray(data) && data.length > 0) {
+                // Validate data points before creating heatmap
+                const validPoints = data.filter(point => 
+                    Array.isArray(point) && point.length >= 3 &&
+                    typeof point[0] === 'number' && typeof point[1] === 'number' && 
+                    typeof point[2] === 'number' &&
+                    point[0] >= -90 && point[0] <= 90 &&
+                    point[1] >= -180 && point[1] <= 180 &&
+                    point[2] > 0
+                );
+                
+                if (validPoints.length > 0) {
+                    // Create heatmap layer
+                    const heat = L.heatLayer(validPoints, {
+                        radius: 10,
+                        blur: 8,
+                        maxZoom: 12,
+                        gradient: {
+                            0.0: '#313695',
+                            0.1: '#4575b4', 
+                            0.2: '#74add1',
+                            0.3: '#abd9e9',
+                            0.4: '#e0f3f8',
+                            0.5: '#fee090',
+                            0.6: '#fdae61',
+                            0.7: '#f46d43',
+                            0.8: '#d73027',
+                            1.0: '#a50026'
+                        }
+                    }).addTo(heatmap);
 
-                // Fit map to heatmap bounds
-                const coords = data.map(point => [point[0], point[1]]);
-                if (coords.length > 0) {
+                    // Fit map to heatmap bounds with better padding
+                    const coords = validPoints.map(point => [point[0], point[1]]);
                     const group = new L.featureGroup(coords.map(coord => L.marker(coord)));
-                    heatmap.fitBounds(group.getBounds(), { padding: [20, 20] });
+                    heatmap.fitBounds(group.getBounds(), { 
+                        padding: [30, 30],
+                        maxZoom: 13
+                    });
+                } else {
+                    heatmapDiv.innerHTML = '<p style="text-align: center; padding: 50px; color: #666;">No valid route data available for heatmap.</p>';
                 }
             } else {
                 // Show message when no data available
@@ -189,7 +213,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(error => {
             console.error('Error loading heatmap data:', error);
-            heatmapDiv.innerHTML = '<p style="text-align: center; padding: 50px; color: #666;">Failed to load heatmap data.</p>';
+            heatmapDiv.innerHTML = `<p style="text-align: center; padding: 50px; color: #666;">Failed to load heatmap data: ${error.message}</p>`;
         });
 });
 </script>
