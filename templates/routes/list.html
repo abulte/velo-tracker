@@ -1,8 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Routes – Velo Tracker{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% endblock %}
+
 {% block content %}
 <h1>Routes</h1>
+
+{% if map_data %}
+<div id="map"></div>
+<script>
+const map = L.map('map');
+const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {
+    attribution: '© OpenStreetMap contributors © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19,
+}).addTo(map);
+
+const routes = {{ map_data | tojson }};
+const bounds = L.latLngBounds();
+
+routes.forEach((r, i) => {
+    const hue = Math.round((i / routes.length) * 360);
+    const color = `hsl(${hue}, 80%, ${dark ? 65 : 45}%)`;
+    const line = L.polyline(r.pts, { color, weight: 3, opacity: 0.9 }).addTo(map);
+    line.bindPopup(`<strong>${r.name}</strong><br><a href="/routes/${r.id}">View route</a>`);
+    bounds.extend(line.getBounds());
+});
+
+if (routes.length) map.fitBounds(bounds, { padding: [20, 20] });
+</script>
+{% endif %}
 
 {% if routes %}
 <table class="table-full">

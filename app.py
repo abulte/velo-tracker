@@ -296,8 +296,21 @@ def list_routes():
                 .group_by(Activity.route_id)
             ).all()
         )
+        ref_ids = [r.reference_activity_id for r in routes]
+        ref_activities = {
+            a.garmin_id: a
+            for a in session.exec(
+                select(Activity).where(Activity.garmin_id.in_(ref_ids))
+            ).all()
+        } if ref_ids else {}
 
-    return render_template("routes/list.html", routes=routes, counts=counts)
+    map_data = [
+        {"id": r.id, "name": r.name, "pts": ref_activities[r.reference_activity_id].polyline}
+        for r in routes
+        if r.reference_activity_id in ref_activities and ref_activities[r.reference_activity_id].polyline
+    ]
+
+    return render_template("routes/list.html", routes=routes, counts=counts, map_data=map_data)
 
 
 @app.route("/routes", methods=["POST"])
