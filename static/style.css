@@ -104,21 +104,19 @@ table {
 
 .filter-val {
     white-space: nowrap;
-    min-width: 3rem;
-    text-align: right;
 }
 
-.filter-val + .drange { margin-left: 0.25rem; }
-.drange + .filter-val { margin-left: 0.25rem; }
-
 #reset-filters {
+    background: transparent;
+    color: var(--text-light, #888);
+    border-color: var(--border, #aaa);
     font-size: 0.8rem;
     padding: 0.2rem 0.6rem;
 }
 
 .drange {
     position: relative;
-    width: 140px;
+    width: 200px;
     height: 20px;
     display: flex;
     align-items: center;
