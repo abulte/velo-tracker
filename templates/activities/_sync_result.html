@@ -1,1 +1,7 @@
-<p class="notice">Synced {{ synced }} activities{% if skipped %} ({{ skipped }} non-cycling activities skipped){% endif %}. <a href="/activities">Refresh</a> to see them.</p>
+{% if created %}
+<p class="notice">{{ created }} new activit{{ 'y' if created == 1 else 'ies' }} synced.{% if updated %} {{ updated }} updated.{% endif %} <a href="/activities">Refresh</a> to see them.</p>
+{% elif updated %}
+<p class="notice">No new activities. {{ updated }} updated.</p>
+{% else %}
+<p class="notice">Already up to date.</p>
+{% endif %}

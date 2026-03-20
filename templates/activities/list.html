@@ -27,16 +27,84 @@
       hx-target="#sync-result"
       hx-swap="innerHTML"
       hx-indicator="#sync-spinner"
+      hx-disabled-elt="button[type='submit']"
       style="display:inline-flex; gap:.5rem; align-items:center;">
     <label for="since">Since</label>
     <input type="date" id="since" name="since"
            value="{{ (today - timedelta(days=7)).isoformat() }}">
-    <button type="submit">Sync from Garmin</button>
-    <span id="sync-spinner" class="htmx-indicator"> Syncing…</span>
+    <button type="submit">
+        <span class="htmx-indicator" id="sync-spinner"><span class="spinner"></span></span>
+        Sync from Garmin
+    </button>
 </form>
 
 <div id="sync-result"></div>
 
+<form id="filters" hx-get="/activities" hx-target="#activities-list" hx-swap="innerHTML" hx-select="#activities-list" hx-trigger="change">
+    <div class="filter-group">
+        <span class="filter-label">Distance</span>
+        <span class="filter-val" id="dist-lo"></span>
+        <div class="drange">
+            <div class="drange-track"><div class="drange-fill"></div></div>
+            <input type="range" name="dist_min" min="{{ dist_min_bound }}" max="{{ dist_max_bound }}" value="{{ filters.dist_min or dist_min_bound }}" step="5">
+            <input type="range" name="dist_max" min="{{ dist_min_bound }}" max="{{ dist_max_bound }}" value="{{ filters.dist_max or dist_max_bound }}" step="5">
+        </div>
+        <span class="filter-val" id="dist-hi"></span>
+    </div>
+    <div class="filter-group">
+        <span class="filter-label">Duration</span>
+        <span class="filter-val" id="dur-lo"></span>
+        <div class="drange">
+            <div class="drange-track"><div class="drange-fill"></div></div>
+            <input type="range" name="dur_min" min="{{ dur_min_bound }}" max="{{ dur_max_bound }}" value="{{ filters.dur_min or dur_min_bound }}" step="5">
+            <input type="range" name="dur_max" min="{{ dur_min_bound }}" max="{{ dur_max_bound }}" value="{{ filters.dur_max or dur_max_bound }}" step="5">
+        </div>
+        <span class="filter-val" id="dur-hi"></span>
+    </div>
+    <button type="button" id="reset-filters" onclick="resetFilters()">Reset</button>
+</form>
+
+<script>
+function fmtDur(min) {
+    if (min < 60) return `${min}min`;
+    const h = Math.floor(min / 60), m = min % 60;
+    return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}`;
+}
+
+const drangeConfig = [
+    { lo: 'dist-lo', hi: 'dist-hi', fmt: v => `${v} km` },
+    { lo: 'dur-lo',  hi: 'dur-hi',  fmt: fmtDur },
+];
+
+document.querySelectorAll('.drange').forEach((el, i) => {
+    const [lo, hi] = el.querySelectorAll('input');
+    const fill = el.querySelector('.drange-fill');
+    const { lo: loId, hi: hiId, fmt } = drangeConfig[i];
+
+    function update() {
+        const min = +lo.min, max = +lo.max;
+        const pct = v => (v - min) / (max - min) * 100;
+        fill.style.left  = pct(+lo.value) + '%';
+        fill.style.width = (pct(+hi.value) - pct(+lo.value)) + '%';
+        document.getElementById(loId).textContent = fmt(+lo.value);
+        document.getElementById(hiId).textContent = fmt(+hi.value);
+    }
+
+    lo.addEventListener('input', () => { if (+lo.value > +hi.value) lo.value = hi.value; update(); });
+    hi.addEventListener('input', () => { if (+hi.value < +lo.value) hi.value = lo.value; update(); });
+    update();
+});
+
+function resetFilters() {
+    document.querySelectorAll('.drange input[type=range]').forEach(input => {
+        input.value = input.name.endsWith('_min') ? input.min : input.max;
+        input.dispatchEvent(new Event('input'));
+    });
+    htmx.trigger('#filters', 'change');
+}
+</script>
+
+<div id="activities-list">
 {% if activities %}
 <table class="table-full">
     <thead>
@@ -53,7 +121,7 @@
             <th>Avg HR</th>
             <th>RPE</th>
             <th>Feel</th>
-            <th></th>
+            <th>📓</th>
         </tr>
     </thead>
     <tbody>
@@ -79,4 +147,5 @@
 {% else %}
 <p>No activities yet. Click <strong>Sync</strong> to import from Garmin Connect.</p>
 {% endif %}
+</div>
 {% endblock %}

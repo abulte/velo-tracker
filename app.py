@@ -141,13 +141,40 @@ def dashboard():
 
 @app.route("/activities")
 def list_activities():
+    dist_min = request.args.get("dist_min", type=float)
+    dist_max = request.args.get("dist_max", type=float)
+    dur_min = request.args.get("dur_min", type=int)   # minutes
+    dur_max = request.args.get("dur_max", type=int)   # minutes
+
+    query = select(Activity).order_by(Activity.start_date.desc())
+    if dist_min is not None:
+        query = query.where(Activity.distance >= dist_min * 1000)
+    if dist_max is not None:
+        query = query.where(Activity.distance <= dist_max * 1000)
+    if dur_min is not None:
+        query = query.where(Activity.moving_time >= dur_min * 60)
+    if dur_max is not None:
+        query = query.where(Activity.moving_time <= dur_max * 60)
+
     with get_session() as session:
-        activities = session.exec(
-            select(Activity).order_by(Activity.start_date.desc())
-        ).all()
+        all_activities = session.exec(select(Activity)).all()
+        activities = session.exec(query).all()
+
+    distances = [a.distance / 1000 for a in all_activities if a.distance]
+    durations = [a.moving_time // 60 for a in all_activities if a.moving_time]
+    bounds = dict(
+        dist_min_bound=int(min(distances, default=0)),
+        dist_max_bound=int(max(distances, default=300)),
+        dur_min_bound=int(min(durations, default=0)),
+        dur_max_bound=int(max(durations, default=360)),
+    )
+
+    filters = dict(dist_min=dist_min, dist_max=dist_max, dur_min=dur_min, dur_max=dur_max)
     return render_template(
         "activities/list.html",
         activities=activities,
+        filters=filters,
+        **bounds,
         today=datetime.date.today(),
         timedelta=datetime.timedelta,
     )

@@ -76,7 +76,8 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
 
     # Garmin uses start/limit pagination, not date filters on the list endpoint.
     # We paginate until we pass the cutoff date.
-    synced = 0
+    created = 0
+    updated = 0
     skipped = 0
     batch_size = 50
     offset = 0
@@ -104,7 +105,7 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
 
             name = item.get("activityName", "?")[:40]
             type_key = at.get("typeKey", "?")
-            click.echo(f"  [{synced + 1}] {start_dt:%Y-%m-%d} {name} ({type_key})… ", nl=False)
+            click.echo(f"  [{created + updated + 1}] {start_dt:%Y-%m-%d} {name} ({type_key})… ", nl=False)
 
             # Fetch detail for RPE/feel (only in summaryDTO)
             detail = client.get_activity(item["activityId"])
@@ -131,6 +132,7 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             existing = session.exec(
                 select(Activity).where(Activity.garmin_id == garmin_id)
             ).first()
+            is_new = existing is None
             activity = existing or Activity(garmin_id=garmin_id)
 
             for k, v in fields.items():
@@ -138,7 +140,10 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             activity.updated_at = datetime.datetime.utcnow()
 
             session.add(activity)
-            synced += 1
+            if is_new:
+                created += 1
+            else:
+                updated += 1
             click.echo("✓")
 
         if past_cutoff or len(batch) < batch_size:
@@ -146,7 +151,7 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
         offset += batch_size
 
     session.commit()
-    return {"synced": synced, "skipped": skipped}
+    return {"created": created, "updated": updated, "skipped": skipped}
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +227,7 @@ def sync(since: str | None):
     engine = _engine()
     with Session(engine) as session:
         result = sync_activities(session, cutoff)
-    click.echo(f"Done — synced: {result['synced']}, skipped (non-cycling): {result['skipped']}")
+    click.echo(f"Done — new: {result['created']}, updated: {result['updated']}, skipped (non-cycling): {result['skipped']}")
 
 
 if __name__ == "__main__":
