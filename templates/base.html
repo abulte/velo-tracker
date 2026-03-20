@@ -1,29 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dim">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Velo Tracker{% endblock %}</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     {% block head %}{% endblock %}
 </head>
 <body>
-    <header>
-        <nav>
-            <a href="/">Velo Tracker</a>
-            <a href="/dashboard">Dashboard</a>
-            <a href="/activities">Activities</a>
-            <a href="/routes">Routes</a>
-        </nav>
-    </header>
+    <div class="navbar bg-base-100 shadow-sm px-4">
+        <div class="navbar-start">
+            <a href="/" class="btn btn-ghost text-xl font-bold">Velo Tracker</a>
+        </div>
+        <div class="navbar-end">
+            <ul class="menu menu-horizontal px-1">
+                <li><a href="/dashboard">Dashboard</a></li>
+                <li><a href="/activities">Activities</a></li>
+                <li><a href="/routes">Routes</a></li>
+            </ul>
+        </div>
+    </div>
 
-    <main>
+    <main class="w-full max-w-7xl mx-auto px-4 pb-16 pt-6">
         {% with messages = get_flashed_messages() %}
         {% if messages %}
             {% for message in messages %}
-            <p class="notice">{{ message }}</p>
+            <div role="alert" class="alert alert-warning mb-4">
+                <span>{{ message }}</span>
+            </div>
             {% endfor %}
         {% endif %}
         {% endwith %}

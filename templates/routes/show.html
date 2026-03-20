@@ -7,35 +7,41 @@
 {% endblock %}
 
 {% block content %}
-<h1 id="route-title">{{ route.name }}</h1>
+<div class="flex items-center gap-2 mb-4">
+    <a href="/routes" class="btn btn-ghost btn-sm">&larr; Routes</a>
+    <h1 id="route-title" class="text-2xl font-bold">{{ route.name }}</h1>
+</div>
 
-<div style="display:flex; gap:.5rem; align-items:center; margin-bottom:1rem;">
-    <a href="/routes">&larr; Routes</a>
-    <button onclick="document.getElementById('edit-dialog').showModal()">Edit</button>
+<div class="flex gap-2 mb-4">
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('edit-dialog').showModal()">Edit</button>
     <form method="post" action="/routes/{{ route.id }}/delete"
           onsubmit="return confirm('Delete this route? Activities will be unassigned.')">
-        <button type="submit" class="danger">Delete</button>
+        <button type="submit" class="btn btn-error btn-sm">Delete</button>
     </form>
 </div>
 
-<dialog id="edit-dialog">
-    <form hx-post="/routes/{{ route.id }}/edit"
-          hx-target="#route-title"
-          hx-swap="outerHTML"
-          hx-on::after-request="document.getElementById('edit-dialog').close()">
-        <label>Name<br>
-            <input type="text" name="name" value="{{ route.name }}" required style="min-width:250px;">
-        </label>
-        <menu>
-            <button type="submit">Save</button>
-            <button type="button" onclick="document.getElementById('edit-dialog').close()">Cancel</button>
-        </menu>
-    </form>
+<dialog id="edit-dialog" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg mb-4">Edit Route Name</h3>
+        <form hx-post="/routes/{{ route.id }}/edit"
+              hx-target="#route-title"
+              hx-swap="outerHTML"
+              hx-on::after-request="document.getElementById('edit-dialog').close()">
+            <label class="label"><span class="label-text">Name</span></label>
+            <input type="text" name="name" value="{{ route.name }}" required
+                   class="input input-bordered w-full mb-4">
+            <div class="flex gap-2 justify-end">
+                <button type="button" class="btn btn-ghost" onclick="document.getElementById('edit-dialog').close()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<table>
+<table class="table table-sm mb-6">
     <tbody>
-        <tr><th>Canonical activity</th><td>{% if ref_activity %}<a href="/activities/{{ ref_activity.garmin_id }}">{{ ref_activity.start_date.strftime('%Y-%m-%d') }} — {{ ref_activity.name }}</a>{% else %}–{% endif %}</td></tr>
+        <tr><th>Canonical activity</th><td>{% if ref_activity %}<a href="/activities/{{ ref_activity.garmin_id }}" class="link">{{ ref_activity.start_date.strftime('%Y-%m-%d') }} — {{ ref_activity.name }}</a>{% else %}–{% endif %}</td></tr>
         <tr><th>Rides</th><td>{{ stats.count }}</td></tr>
         <tr><th>Avg Distance</th><td>{% if stats.avg_distance %}{{ "%.1f"|format(stats.avg_distance) }} km{% else %}–{% endif %}</td></tr>
         <tr><th>Best Distance</th><td>{% if stats.best_distance %}{{ "%.1f"|format(stats.best_distance) }} km{% else %}–{% endif %}</td></tr>
@@ -46,7 +52,9 @@
 </table>
 
 {% if polylines %}
-<div id="map"></div>
+<div class="card bg-base-100 shadow mb-4">
+    <div id="map"></div>
+</div>
 <script>
 const map = L.map('map');
 const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -106,8 +114,9 @@ map.fitBounds(bounds, { padding: [20, 20] });
 {% endif %}
 
 {% if activities %}
-<h2>Ride History</h2>
-<table class="table-full">
+<h2 class="text-lg font-semibold mb-2">Ride History</h2>
+<div class="overflow-x-auto">
+<table class="table table-sm table-zebra w-full">
     <thead>
         <tr>
             <th>Date</th>
@@ -123,7 +132,7 @@ map.fitBounds(bounds, { padding: [20, 20] });
     <tbody>
         {% for a in activities %}
         <tr>
-            <td><a href="/activities/{{ a.garmin_id }}">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
+            <td><a href="/activities/{{ a.garmin_id }}" class="link">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
             <td>{{ a.name }}</td>
             <td>{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
             <td>{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
@@ -135,6 +144,7 @@ map.fitBounds(bounds, { padding: [20, 20] });
         {% endfor %}
     </tbody>
 </table>
+</div>
 {% else %}
 <p>No matched rides yet.</p>
 {% endif %}

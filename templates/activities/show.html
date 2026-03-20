@@ -9,16 +9,16 @@
 {% set feel_labels = {0: "😫 Very Weak", 25: "😕 Weak", 50: "😐 Normal", 75: "🙂 Strong", 100: "💪 Very Strong"} %}
 
 {% block content %}
-<h1>{{ activity.name }}</h1>
-<p>
-    <a href="/activities">&larr; Back</a> &nbsp;
-    <small>{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.activity_type }}</small>
-    &nbsp; <a href="#" onclick="downloadGpx('{{ activity.garmin_id }}', '{{ activity.name|replace("'", "\\'") }}'); return false;">Download GPX</a>
-</p>
+<div class="flex items-center gap-2 mb-4">
+    <a href="/activities" class="btn btn-ghost btn-sm">&larr; Back</a>
+    <h1 class="text-2xl font-bold">{{ activity.name }}</h1>
+    <span class="text-base-content/60 text-sm">{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.activity_type }}</span>
+    <a href="#" class="btn btn-ghost btn-sm" onclick="downloadGpx('{{ activity.garmin_id }}', '{{ activity.name|replace("'", "\\'") }}'); return false;">Download GPX</a>
+</div>
 
-<div class="activity-grid">
+<div class="activity-grid mb-6">
     <div>
-        <table>
+        <table class="table table-sm">
             <tbody>
                 <tr><th>Distance</th><td>{% if activity.distance %}{{ "%.1f"|format(activity.distance / 1000) }} km{% else %}–{% endif %}</td></tr>
                 <tr><th>Moving Time</th><td>{% if activity.moving_time %}{{ (activity.moving_time // 3600) }}h {{ "%02d"|format((activity.moving_time % 3600) // 60) }}m{% else %}–{% endif %}</td></tr>
@@ -26,11 +26,11 @@
                 <tr><th><abbr title="Rating of Perceived Exertion">RPE</abbr></th><td>
                     {% if activity.rpe %}
                     {% set rpe = activity.rpe %}
-                    {% if rpe <= 30 %}{% set cls = "rpe-easy" %}
-                    {% elif rpe <= 60 %}{% set cls = "rpe-medium" %}
-                    {% elif rpe <= 80 %}{% set cls = "rpe-hard" %}
-                    {% else %}{% set cls = "rpe-max" %}{% endif %}
-                    <span class="rpe-badge {{ cls }}">{{ rpe }}/100</span>
+                    {% if rpe <= 30 %}<span class="badge badge-success font-bold">{{ rpe }}/100</span>
+                    {% elif rpe <= 60 %}<span class="badge badge-warning font-bold">{{ rpe }}/100</span>
+                    {% elif rpe <= 80 %}<span class="badge font-bold" style="background:#FF7043;color:white;border-color:#FF7043;">{{ rpe }}/100</span>
+                    {% else %}<span class="badge badge-error font-bold">{{ rpe }}/100</span>
+                    {% endif %}
                     {% else %}–{% endif %}
                 </td></tr>
                 <tr><th>Feel</th><td>{% if activity.feel %}{{ feel_labels.get(activity.feel, activity.feel) }}{% else %}–{% endif %}</td></tr>
@@ -41,8 +41,8 @@
         {% include "activities/_notes.html" %}
     </div>
     <div>
-        <h2>Details</h2>
-        <table>
+        <h2 class="text-lg font-semibold mb-2">Details</h2>
+        <table class="table table-sm">
             <tbody>
                 <tr><th>Elevation</th><td>{% if activity.total_elevation_gain %}{{ activity.total_elevation_gain|int }} m{% else %}–{% endif %}</td></tr>
                 <tr><th><abbr title="Training Stress Score">TSS</abbr></th><td>{% if activity.tss %}{{ activity.tss|int }}{% else %}–{% endif %}</td></tr>
@@ -57,24 +57,26 @@
         </table>
     </div>
     <div>
-        <h2>Map</h2>
+        <h2 class="text-lg font-semibold mb-2">Map</h2>
         <div id="map"></div>
     </div>
 </div>
 
 {% if activity.route_id %}
-<p><strong>Route:</strong> <a href="/routes/{{ activity.route_id }}">View route</a></p>
+<p class="mb-4"><strong>Route:</strong> <a href="/routes/{{ activity.route_id }}" class="link">View route</a></p>
 {% else %}
 <form hx-post="/routes"
       hx-target="#route-status"
       hx-swap="innerHTML"
       hx-indicator="#route-spinner"
       hx-disabled-elt="button[type='submit']"
-      style="display:inline-flex; gap:.5rem; align-items:center;">
+      class="flex gap-2 items-center mb-4">
     <input type="hidden" name="garmin_id" value="{{ activity.garmin_id }}">
-    <input type="text" name="name" placeholder="Route name" required style="min-width:200px;">
-    <button type="submit">
-        <span class="htmx-indicator" id="route-spinner"><span class="spinner"></span></span>
+    <input type="text" name="name" placeholder="Route name" required class="input input-bordered input-sm" style="min-width:200px;">
+    <button type="submit" class="btn btn-sm btn-outline">
+        <span class="htmx-indicator" id="route-spinner">
+            <span class="loading loading-spinner loading-sm"></span>
+        </span>
         Save route
     </button>
 </form>
@@ -82,7 +84,7 @@
 {% endif %}
 
 {% if activity.description %}
-<h2>Description</h2>
+<h2 class="text-lg font-semibold mb-2">Description</h2>
 <p>{{ activity.description }}</p>
 {% endif %}
 

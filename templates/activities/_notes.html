@@ -1,19 +1,26 @@
-<div id="notes-section">
+<div id="notes-section" class="card bg-base-100 shadow p-4">
     {% if activity.notes %}
-    <p>{{ activity.notes }}</p>
+    <p class="mb-2">{{ activity.notes }}</p>
     {% else %}
-    <p><em>No notes.</em></p>
+    <p class="mb-2 text-base-content/50 italic">No notes.</p>
     {% endif %}
 
-    <button onclick="document.getElementById('notes-dialog').showModal()">Edit</button>
+    <button class="btn btn-ghost btn-xs" onclick="document.getElementById('notes-dialog').showModal()">Edit</button>
 
-    <dialog id="notes-dialog">
-        <form hx-post="/activities/{{ activity.garmin_id }}/notes"
-              hx-target="#notes-section"
-              hx-swap="outerHTML"
-              hx-on::after-request="document.getElementById('notes-dialog').close()">
-            <textarea name="notes" rows="6" style="width:100%">{{ activity.notes or "" }}</textarea>
-            <button type="submit">Save</button>
-        </form>
+    <dialog id="notes-dialog" class="modal">
+        <div class="modal-box">
+            <h3 class="font-bold text-lg mb-4">Notes</h3>
+            <form hx-post="/activities/{{ activity.garmin_id }}/notes"
+                  hx-target="#notes-section"
+                  hx-swap="outerHTML"
+                  hx-on::after-request="document.getElementById('notes-dialog').close()">
+                <textarea name="notes" rows="6" class="textarea textarea-bordered w-full mb-4">{{ activity.notes or "" }}</textarea>
+                <div class="flex gap-2 justify-end">
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('notes-dialog').close()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 </div>
