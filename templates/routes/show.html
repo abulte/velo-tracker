@@ -7,11 +7,35 @@
 {% endblock %}
 
 {% block content %}
-<h1>{{ route.name }}</h1>
-<p><a href="/routes">&larr; Routes</a></p>
+<h1 id="route-title">{{ route.name }}</h1>
+
+<div style="display:flex; gap:.5rem; align-items:center; margin-bottom:1rem;">
+    <a href="/routes">&larr; Routes</a>
+    <button onclick="document.getElementById('edit-dialog').showModal()">Edit</button>
+    <form method="post" action="/routes/{{ route.id }}/delete"
+          onsubmit="return confirm('Delete this route? Activities will be unassigned.')">
+        <button type="submit" class="danger">Delete</button>
+    </form>
+</div>
+
+<dialog id="edit-dialog">
+    <form hx-post="/routes/{{ route.id }}/edit"
+          hx-target="#route-title"
+          hx-swap="outerHTML"
+          hx-on::after-request="document.getElementById('edit-dialog').close()">
+        <label>Name<br>
+            <input type="text" name="name" value="{{ route.name }}" required style="min-width:250px;">
+        </label>
+        <menu>
+            <button type="submit">Save</button>
+            <button type="button" onclick="document.getElementById('edit-dialog').close()">Cancel</button>
+        </menu>
+    </form>
+</dialog>
 
 <table>
     <tbody>
+        <tr><th>Canonical activity</th><td>{% if ref_activity %}<a href="/activities/{{ ref_activity.garmin_id }}">{{ ref_activity.start_date.strftime('%Y-%m-%d') }} — {{ ref_activity.name }}</a>{% else %}–{% endif %}</td></tr>
         <tr><th>Rides</th><td>{{ stats.count }}</td></tr>
         <tr><th>Avg Distance</th><td>{% if stats.avg_distance %}{{ "%.1f"|format(stats.avg_distance) }} km{% else %}–{% endif %}</td></tr>
         <tr><th>Best Distance</th><td>{% if stats.best_distance %}{{ "%.1f"|format(stats.best_distance) }} km{% else %}–{% endif %}</td></tr>

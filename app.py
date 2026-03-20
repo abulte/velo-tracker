@@ -341,6 +341,9 @@ def show_route(route_id: int):
             .where(Activity.route_id == route_id)
             .order_by(Activity.start_date.desc())
         ).all()
+        ref_activity = session.exec(
+            select(Activity).where(Activity.garmin_id == route.reference_activity_id)
+        ).first()
 
     distances = [a.distance / 1000 for a in activities if a.distance]
     tsses = [a.tss for a in activities if a.tss]
@@ -356,10 +359,47 @@ def show_route(route_id: int):
         {"pts": a.polyline, "garmin_id": a.garmin_id, "name": a.name, "date": a.start_date.strftime("%Y-%m-%d")}
         for a in activities if a.polyline and a.garmin_id != route.reference_activity_id
     ]
-    ref_activity = next((a for a in activities if a.garmin_id == route.reference_activity_id), None)
     ref_polyline = {"pts": ref_activity.polyline, "garmin_id": ref_activity.garmin_id, "name": ref_activity.name, "date": ref_activity.start_date.strftime("%Y-%m-%d")} if ref_activity and ref_activity.polyline else None
 
-    return render_template("routes/show.html", route=route, activities=activities, stats=stats, polylines=polylines, ref_polyline=ref_polyline)
+    return render_template("routes/show.html", route=route, activities=activities, stats=stats, polylines=polylines, ref_polyline=ref_polyline, ref_activity=ref_activity)
+
+
+@app.route("/routes/<int:route_id>/edit", methods=["POST"])
+def edit_route(route_id: int):
+    from models import Route
+
+    name = request.form.get("name", "").strip()
+    if not name:
+        return "Name required", 400
+
+    with get_session() as session:
+        route = session.get(Route, route_id)
+        if not route:
+            return "Not found", 404
+        route.name = name
+        session.add(route)
+        session.commit()
+
+    return f'<h1 id="route-title">{name}</h1>'
+
+
+@app.route("/routes/<int:route_id>/delete", methods=["POST"])
+def delete_route(route_id: int):
+    with get_session() as session:
+        activities = session.exec(
+            select(Activity).where(Activity.route_id == route_id)
+        ).all()
+        for a in activities:
+            a.route_id = None
+        session.commit()
+
+        from models import Route
+        route = session.get(Route, route_id)
+        if route:
+            session.delete(route)
+            session.commit()
+
+    return redirect(url_for("list_routes"))
 
 
 @app.route("/routes/<int:route_id>/course", methods=["POST"])
