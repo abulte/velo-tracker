@@ -141,10 +141,13 @@ def dashboard():
 
 @app.route("/activities")
 def list_activities():
+    from models import Route
+
     dist_min = request.args.get("dist_min", type=float)
     dist_max = request.args.get("dist_max", type=float)
     dur_min = request.args.get("dur_min", type=int)   # minutes
     dur_max = request.args.get("dur_max", type=int)   # minutes
+    route_id = request.args.get("route_id", type=int)
 
     query = select(Activity).order_by(Activity.start_date.desc())
     if dist_min is not None:
@@ -155,10 +158,13 @@ def list_activities():
         query = query.where(Activity.moving_time >= dur_min * 60)
     if dur_max is not None:
         query = query.where(Activity.moving_time <= dur_max * 60)
+    if route_id is not None:
+        query = query.where(Activity.route_id == route_id)
 
     with get_session() as session:
         all_activities = session.exec(select(Activity)).all()
         activities = session.exec(query).all()
+        routes = session.exec(select(Route).order_by(Route.name)).all()
 
     distances = [a.distance / 1000 for a in all_activities if a.distance]
     durations = [a.moving_time // 60 for a in all_activities if a.moving_time]
@@ -169,11 +175,12 @@ def list_activities():
         dur_max_bound=int(max(durations, default=360)),
     )
 
-    filters = dict(dist_min=dist_min, dist_max=dist_max, dur_min=dur_min, dur_max=dur_max)
+    filters = dict(dist_min=dist_min, dist_max=dist_max, dur_min=dur_min, dur_max=dur_max, route_id=route_id)
     return render_template(
         "activities/list.html",
         activities=activities,
         filters=filters,
+        routes=routes,
         **bounds,
         today=datetime.date.today(),
         timedelta=datetime.timedelta,
@@ -275,6 +282,79 @@ def heatmap_data():
         return jsonify({"error": "Failed to generate heatmap data"}), 500
 
 
+@app.route("/routes")
+def list_routes():
+    from models import Route
+    from sqlalchemy import func
+
+    with get_session() as session:
+        routes = session.exec(select(Route).order_by(Route.name)).all()
+        counts = dict(
+            session.exec(
+                select(Activity.route_id, func.count(Activity.id))
+                .where(Activity.route_id.isnot(None))
+                .group_by(Activity.route_id)
+            ).all()
+        )
+
+    return render_template("routes/list.html", routes=routes, counts=counts)
+
+
+@app.route("/routes", methods=["POST"])
+def create_route():
+    from models import Route
+    from routes import assign_route_to_all
+
+    name = request.form.get("name", "").strip()
+    garmin_id = request.form.get("garmin_id", "").strip()
+    if not name or not garmin_id:
+        return "Missing name or activity id", 400
+
+    with get_session() as session:
+        route = Route(name=name, reference_activity_id=garmin_id)
+        session.add(route)
+        session.commit()
+        session.refresh(route)
+        route_id = route.id
+        count = assign_route_to_all(session, route)
+        session.commit()
+
+    is_htmx = request.headers.get("HX-Request")
+    if is_htmx:
+        return (
+            f'<p class="notice">Route "<a href="/routes/{route_id}">{name}</a>" saved'
+            f" — {count} activit{'y' if count == 1 else 'ies'} matched.</p>"
+        )
+    return redirect(url_for("show_route", route_id=route_id))
+
+
+@app.route("/routes/<int:route_id>")
+def show_route(route_id: int):
+    from models import Route
+
+    with get_session() as session:
+        route = session.get(Route, route_id)
+        if not route:
+            return "Not found", 404
+        activities = session.exec(
+            select(Activity)
+            .where(Activity.route_id == route_id)
+            .order_by(Activity.start_date.desc())
+        ).all()
+
+    distances = [a.distance / 1000 for a in activities if a.distance]
+    tsses = [a.tss for a in activities if a.tss]
+    stats = dict(
+        count=len(activities),
+        avg_distance=sum(distances) / len(distances) if distances else None,
+        best_distance=max(distances) if distances else None,
+        avg_tss=sum(tsses) / len(tsses) if tsses else None,
+        best_tss=max(tsses) if tsses else None,
+    )
+
+    return render_template("routes/show.html", route=route, activities=activities, stats=stats)
+
+
 @app.route("/health")
 def health():
     try:
@@ -286,4 +366,4 @@ def health():
 
 
 # Import models after engine is set up so Alembic can detect them
-from models import Activity  # noqa: E402, F401
+from models import Activity, Route  # noqa: E402, F401

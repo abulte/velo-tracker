@@ -61,6 +61,17 @@
         </div>
         <span class="filter-val" id="dur-hi"></span>
     </div>
+    {% if routes %}
+    <div class="filter-group">
+        <span class="filter-label">Route</span>
+        <select name="route_id" onchange="this.form.dispatchEvent(new Event('change'))">
+            <option value="">All routes</option>
+            {% for r in routes %}
+            <option value="{{ r.id }}"{% if filters.route_id == r.id %} selected{% endif %}>{{ r.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
     <button type="button" id="reset-filters" onclick="resetFilters()">Reset</button>
 </form>
 
@@ -100,6 +111,8 @@ function resetFilters() {
         input.value = input.name.endsWith('_min') ? input.min : input.max;
         input.dispatchEvent(new Event('input'));
     });
+    const routeSel = document.querySelector('#filters select[name=route_id]');
+    if (routeSel) routeSel.value = '';
     htmx.trigger('#filters', 'change');
 }
 </script>

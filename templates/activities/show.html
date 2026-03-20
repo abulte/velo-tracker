@@ -61,6 +61,25 @@
     </div>
 </div>
 
+{% if activity.route_id %}
+<p><strong>Route:</strong> <a href="/routes/{{ activity.route_id }}">View route</a></p>
+{% else %}
+<form hx-post="/routes"
+      hx-target="#route-status"
+      hx-swap="innerHTML"
+      hx-indicator="#route-spinner"
+      hx-disabled-elt="button[type='submit']"
+      style="display:inline-flex; gap:.5rem; align-items:center;">
+    <input type="hidden" name="garmin_id" value="{{ activity.garmin_id }}">
+    <input type="text" name="name" placeholder="Route name" required style="min-width:200px;">
+    <button type="submit">
+        <span class="htmx-indicator" id="route-spinner"><span class="spinner"></span></span>
+        Save route
+    </button>
+</form>
+<div id="route-status"></div>
+{% endif %}
+
 {% if activity.description %}
 <h2>Description</h2>
 <p>{{ activity.description }}</p>

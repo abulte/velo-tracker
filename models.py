@@ -4,6 +4,13 @@ from sqlalchemy import Column, JSON
 from sqlmodel import Field, SQLModel
 
 
+class Route(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    reference_activity_id: str  # garmin_id of the reference activity
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class Activity(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
 
@@ -46,6 +53,9 @@ class Activity(SQLModel, table=True):
 
     # Map data
     polyline: Optional[list] = Field(default=None, sa_column=Column(JSON))  # [[lat, lon], ...]
+
+    # Route assignment
+    route_id: Optional[int] = Field(default=None, foreign_key="route.id", index=True)
 
     # Local notes (stored only in this app)
     notes: Optional[str] = None

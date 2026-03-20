@@ -14,7 +14,7 @@ main {
     grid-column: 1 / -1;
     width: min(80rem, 90%);
     margin: 0 auto;
-    padding: 0 1rem;
+    padding: 0 1rem 4rem;
 }
 
 .htmx-indicator { display: none; }

@@ -12,6 +12,7 @@ dependencies = [
     "psycopg2-binary",
     "flask-fenrir>=0.4.0",
     "garminconnect>=0.2.38",
+    "geohash2",
 ]
 
 [project.optional-dependencies]

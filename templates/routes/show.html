@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ route.name }} – Velo Tracker{% endblock %}
+
+{% block content %}
+<h1>{{ route.name }}</h1>
+<p><a href="/activities">&larr; Activities</a></p>
+
+<table>
+    <tbody>
+        <tr><th>Rides</th><td>{{ stats.count }}</td></tr>
+        <tr><th>Avg Distance</th><td>{% if stats.avg_distance %}{{ "%.1f"|format(stats.avg_distance) }} km{% else %}–{% endif %}</td></tr>
+        <tr><th>Best Distance</th><td>{% if stats.best_distance %}{{ "%.1f"|format(stats.best_distance) }} km{% else %}–{% endif %}</td></tr>
+        <tr><th>Avg TSS</th><td>{% if stats.avg_tss %}{{ "%.0f"|format(stats.avg_tss) }}{% else %}–{% endif %}</td></tr>
+        <tr><th>Best TSS</th><td>{% if stats.best_tss %}{{ "%.0f"|format(stats.best_tss) }}{% else %}–{% endif %}</td></tr>
+    </tbody>
+</table>
+
+{% if activities %}
+<h2>Ride History</h2>
+<table class="table-full">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Name</th>
+            <th>Distance</th>
+            <th>Time</th>
+            <th>Elev</th>
+            <th>NP</th>
+            <th>TSS</th>
+            <th>RPE</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for a in activities %}
+        <tr>
+            <td><a href="/activities/{{ a.garmin_id }}">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
+            <td>{{ a.name }}</td>
+            <td>{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
+            <td>{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
+            <td>{% if a.total_elevation_gain %}{{ a.total_elevation_gain|int }} m{% else %}–{% endif %}</td>
+            <td>{% if a.normalized_watts %}{{ a.normalized_watts|int }} W{% else %}–{% endif %}</td>
+            <td>{% if a.tss %}{{ a.tss|int }}{% else %}–{% endif %}</td>
+            <td>{% if a.rpe %}{{ a.rpe }}{% else %}–{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No matched rides yet.</p>
+{% endif %}
+{% endblock %}

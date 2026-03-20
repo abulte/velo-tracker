@@ -140,6 +140,13 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             activity.updated_at = datetime.datetime.utcnow()
 
             session.add(activity)
+
+            if activity.polyline:
+                from routes import match_activity_to_routes
+                matched = match_activity_to_routes(session, activity)
+                if matched:
+                    activity.route_id = matched.id
+
             if is_new:
                 created += 1
             else:
@@ -210,6 +217,40 @@ def login():
         click.echo(
             f"  Latest: {a.get('activityName')} ({at.get('typeKey')})"
         )
+    click.echo("Done.")
+
+
+@cli.command("assign-routes")
+@click.option("--route-id", default=None, type=int, help="Recompute a single route (default: all routes)")
+def assign_routes(route_id: int | None):
+    """Recompute route assignments for all activities."""
+    from models import Activity, Route
+    from routes import assign_route_to_all
+
+    engine = _engine()
+    with Session(engine) as session:
+        if route_id is not None:
+            routes = [session.get(Route, route_id)]
+            if not routes[0]:
+                click.echo(f"Route {route_id} not found.", err=True)
+                return
+        else:
+            routes = session.exec(select(Route)).all()
+
+        # Clear existing assignments for targeted routes
+        route_ids = [r.id for r in routes]
+        activities = session.exec(
+            select(Activity).where(Activity.route_id.in_(route_ids))
+        ).all()
+        for a in activities:
+            a.route_id = None
+        session.commit()
+
+        for route in routes:
+            count = assign_route_to_all(session, route)
+            session.commit()
+            click.echo(f"  {route.name}: {count} activit{'y' if count == 1 else 'ies'} matched")
+
     click.echo("Done.")
 
 
