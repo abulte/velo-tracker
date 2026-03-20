@@ -9,6 +9,7 @@ class Route(SQLModel, table=True):
     name: str
     reference_activity_id: str  # garmin_id of the reference activity
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    garmin_course_url: Optional[str] = None
 
 
 class Activity(SQLModel, table=True):

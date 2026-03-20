@@ -13,6 +13,7 @@
 <p>
     <a href="/activities">&larr; Back</a> &nbsp;
     <small>{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.activity_type }}</small>
+    &nbsp; <a href="#" onclick="downloadGpx('{{ activity.garmin_id }}', '{{ activity.name|replace("'", "\\'") }}'); return false;">Download GPX</a>
 </p>
 
 <div class="activity-grid">
@@ -86,6 +87,15 @@
 {% endif %}
 
 <script>
+function downloadGpx(garminId, defaultName) {
+    const name = prompt("GPX file name:", defaultName);
+    if (!name) return;
+    const a = document.createElement('a');
+    a.href = `/activities/${garminId}/gpx?name=${encodeURIComponent(name)}`;
+    a.download = name + '.gpx';
+    a.click();
+}
+
 const map = L.map('map');
 const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {

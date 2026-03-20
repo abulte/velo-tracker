@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% block title %}{{ route.name }} – Velo Tracker{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% endblock %}
+
 {% block content %}
 <h1>{{ route.name }}</h1>
-<p><a href="/activities">&larr; Activities</a></p>
+<p><a href="/routes">&larr; Routes</a></p>
 
 <table>
     <tbody>
@@ -12,8 +17,69 @@
         <tr><th>Best Distance</th><td>{% if stats.best_distance %}{{ "%.1f"|format(stats.best_distance) }} km{% else %}–{% endif %}</td></tr>
         <tr><th>Avg TSS</th><td>{% if stats.avg_tss %}{{ "%.0f"|format(stats.avg_tss) }}{% else %}–{% endif %}</td></tr>
         <tr><th>Best TSS</th><td>{% if stats.best_tss %}{{ "%.0f"|format(stats.best_tss) }}{% else %}–{% endif %}</td></tr>
+        <tr><th>Garmin Course</th><td>{% include "routes/_course_url.html" %}</td></tr>
     </tbody>
 </table>
+
+{% if polylines %}
+<div id="map"></div>
+<script>
+const map = L.map('map');
+const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {
+    attribution: '© OpenStreetMap contributors © CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19,
+}).addTo(map);
+
+const polylines = {{ polylines | tojson }};
+const refPolyline = {{ ref_polyline | tojson }};
+const bounds = L.latLngBounds();
+
+function popup(a) {
+    return `<strong>${a.date}</strong><br>${a.name}<br><a href="/activities/${a.garmin_id}">View activity</a>`;
+}
+
+const allLines = [];
+
+polylines.forEach(a => {
+    const line = L.polyline(a.pts, { color: '#e53935', weight: 2, opacity: 0.35 }).addTo(map);
+    line.bindPopup(popup(a));
+    line.on('click', () => highlight(line));
+    bounds.extend(line.getBounds());
+    allLines.push(line);
+});
+
+if (refPolyline) {
+    const ref = L.polyline(refPolyline.pts, { color: '#e53935', weight: 4, opacity: 1 }).addTo(map);
+    ref.bindPopup(popup(refPolyline));
+    ref.on('click', () => highlight(ref));
+    bounds.extend(ref.getBounds());
+    allLines.push(ref);
+}
+
+function highlight(active) {
+    allLines.forEach(l => {
+        const isRef = l === allLines[allLines.length - 1] && refPolyline;
+        l.setStyle(l === active
+            ? { weight: 4, opacity: 1 }
+            : { weight: isRef ? 4 : 2, opacity: isRef ? 0.25 : 0.2 }
+        );
+        if (l !== active) l.bringToBack();
+    });
+    active.bringToFront();
+}
+
+map.on('popupclose', () => {
+    allLines.forEach((l, i) => {
+        const isRef = i === allLines.length - 1 && refPolyline;
+        l.setStyle(isRef ? { weight: 4, opacity: 1 } : { weight: 2, opacity: 0.35 });
+    });
+});
+
+map.fitBounds(bounds, { padding: [20, 20] });
+</script>
+{% endif %}
 
 {% if activities %}
 <h2>Ride History</h2>

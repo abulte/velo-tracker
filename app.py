@@ -352,7 +352,64 @@ def show_route(route_id: int):
         best_tss=max(tsses) if tsses else None,
     )
 
-    return render_template("routes/show.html", route=route, activities=activities, stats=stats)
+    polylines = [
+        {"pts": a.polyline, "garmin_id": a.garmin_id, "name": a.name, "date": a.start_date.strftime("%Y-%m-%d")}
+        for a in activities if a.polyline and a.garmin_id != route.reference_activity_id
+    ]
+    ref_activity = next((a for a in activities if a.garmin_id == route.reference_activity_id), None)
+    ref_polyline = {"pts": ref_activity.polyline, "garmin_id": ref_activity.garmin_id, "name": ref_activity.name, "date": ref_activity.start_date.strftime("%Y-%m-%d")} if ref_activity and ref_activity.polyline else None
+
+    return render_template("routes/show.html", route=route, activities=activities, stats=stats, polylines=polylines, ref_polyline=ref_polyline)
+
+
+@app.route("/routes/<int:route_id>/course", methods=["POST"])
+def save_course_url(route_id: int):
+    from models import Route
+
+    with get_session() as session:
+        route = session.get(Route, route_id)
+        if not route:
+            return "Not found", 404
+        route.garmin_course_url = request.form.get("garmin_course_url", "").strip() or None
+        session.add(route)
+        session.commit()
+        session.refresh(route)
+
+    return render_template("routes/_course_url.html", route=route)
+
+
+@app.route("/activities/<string:garmin_id>/gpx")
+def activity_gpx(garmin_id: str):
+    from flask import Response
+
+    with get_session() as session:
+        activity = session.exec(
+            select(Activity).where(Activity.garmin_id == garmin_id)
+        ).first()
+        if not activity:
+            return "Not found", 404
+        if not activity.polyline:
+            return "No polyline for this activity", 404
+
+    name = request.args.get("name", activity.name)
+    points = "".join(
+        f'    <trkpt lat="{lat}" lon="{lon}"></trkpt>\n'
+        for lat, lon in activity.polyline
+    )
+    gpx = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<gpx version="1.1" creator="velo-tracker"'
+        ' xmlns="http://www.topografix.com/GPX/1/1">\n'
+        f'  <trk><name>{name}</name><trkseg>\n'
+        f'{points}'
+        '  </trkseg></trk>\n'
+        '</gpx>'
+    )
+    return Response(
+        gpx,
+        mimetype="application/gpx+xml",
+        headers={"Content-Disposition": f'attachment; filename="{name}.gpx"'},
+    )
 
 
 @app.route("/health")
