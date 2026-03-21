@@ -99,16 +99,3 @@
 [data-theme="dim"] .drange input[type=range]::-moz-range-thumb,
 [data-theme="dark"] .drange input[type=range]::-moz-range-thumb { background: #777; }
 
-/* Activity detail grid */
-.activity-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 1rem 3rem;
-    align-items: start;
-}
-
-@media (max-width: 640px) {
-    .activity-grid {
-        grid-template-columns: 1fr;
-    }
-}

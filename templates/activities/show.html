@@ -9,83 +9,157 @@
 {% set feel_labels = {0: "😫 Very Weak", 25: "😕 Weak", 50: "😐 Normal", 75: "🙂 Strong", 100: "💪 Very Strong"} %}
 
 {% block content %}
-<div class="flex items-center gap-2 mb-4">
-    <a href="/activities" class="btn btn-ghost btn-sm">&larr; Back</a>
-    <h1 class="text-2xl font-bold">{{ activity.name }}</h1>
-    <span class="text-base-content/60 text-sm">{{ activity.start_date.strftime('%A, %B %-d %Y') }} &middot; {{ activity.activity_type }}</span>
-    <a href="#" class="btn btn-ghost btn-sm" onclick="downloadGpx('{{ activity.garmin_id }}', '{{ activity.name|replace("'", "\\'") }}'); return false;">Download GPX</a>
-</div>
 
-<div class="activity-grid mb-6">
-    <div>
-        <table class="table table-sm">
-            <tbody>
-                <tr><th>Distance</th><td>{% if activity.distance %}{{ "%.1f"|format(activity.distance / 1000) }} km{% else %}–{% endif %}</td></tr>
-                <tr><th>Moving Time</th><td>{% if activity.moving_time %}{{ (activity.moving_time // 3600) }}h {{ "%02d"|format((activity.moving_time % 3600) // 60) }}m{% else %}–{% endif %}</td></tr>
-                <tr><th><abbr title="Normalized Power">NP</abbr></th><td>{% if activity.normalized_watts %}{{ activity.normalized_watts|int }} W{% else %}–{% endif %}</td></tr>
-                <tr><th><abbr title="Rating of Perceived Exertion">RPE</abbr></th><td>
-                    {% if activity.rpe %}
-                    {% set rpe = activity.rpe %}
-                    {% if rpe <= 30 %}<span class="badge badge-success font-bold">{{ rpe }}/100</span>
-                    {% elif rpe <= 60 %}<span class="badge badge-warning font-bold">{{ rpe }}/100</span>
-                    {% elif rpe <= 80 %}<span class="badge font-bold" style="background:#FF7043;color:white;border-color:#FF7043;">{{ rpe }}/100</span>
-                    {% else %}<span class="badge badge-error font-bold">{{ rpe }}/100</span>
-                    {% endif %}
-                    {% else %}–{% endif %}
-                </td></tr>
-                <tr><th>Feel</th><td>{% if activity.feel %}{{ feel_labels.get(activity.feel, activity.feel) }}{% else %}–{% endif %}</td></tr>
-            </tbody>
-        </table>
+{# ── Header ── #}
+<div class="mb-5">
+    <div class="flex items-center gap-2 mb-1">
+        <a href="/activities" class="btn btn-ghost btn-xs">&larr;</a>
+        <h1 class="text-xl font-bold">{{ activity.name }}</h1>
     </div>
-    <div>
-        {% include "activities/_notes.html" %}
-    </div>
-    <div>
-        <h2 class="text-lg font-semibold mb-2">Details</h2>
-        <table class="table table-sm">
-            <tbody>
-                <tr><th>Elevation</th><td>{% if activity.total_elevation_gain %}{{ activity.total_elevation_gain|int }} m{% else %}–{% endif %}</td></tr>
-                <tr><th><abbr title="Training Stress Score">TSS</abbr></th><td>{% if activity.tss %}{{ activity.tss|int }}{% else %}–{% endif %}</td></tr>
-                <tr><th><abbr title="Intensity Factor — ratio of NP to FTP">IF</abbr></th><td>{% if activity.intensity_factor %}{{ "%.0f"|format(activity.intensity_factor) }}%{% else %}–{% endif %}</td></tr>
-                <tr><th>Avg Power</th><td>{% if activity.average_watts %}{{ activity.average_watts|int }} W{% else %}–{% endif %}</td></tr>
-                <tr><th>Max Power</th><td>{% if activity.max_watts %}{{ activity.max_watts }} W{% else %}–{% endif %}</td></tr>
-                <tr><th>Avg <abbr title="Heart Rate">HR</abbr></th><td>{% if activity.average_heartrate %}{{ activity.average_heartrate|int }} bpm{% else %}–{% endif %}</td></tr>
-                <tr><th>Max <abbr title="Heart Rate">HR</abbr></th><td>{% if activity.max_heartrate %}{{ activity.max_heartrate }} bpm{% else %}–{% endif %}</td></tr>
-                <tr><th>Avg Cadence</th><td>{% if activity.average_cadence %}{{ activity.average_cadence|int }} rpm{% else %}–{% endif %}</td></tr>
-                <tr><th>Avg Speed</th><td>{% if activity.average_speed %}{{ "%.1f"|format(activity.average_speed * 3.6) }} km/h{% else %}–{% endif %}</td></tr>
-            </tbody>
-        </table>
-    </div>
-    <div>
-        <h2 class="text-lg font-semibold mb-2">Map</h2>
-        <div id="map"></div>
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pl-1 text-sm text-base-content/50">
+        <span>{{ activity.start_date.strftime('%A, %B %-d %Y') }}</span>
+        <span>·</span>
+        <span>{{ activity.activity_type }}</span>
+        <a href="#" class="link link-hover" onclick="downloadGpx('{{ activity.garmin_id }}', '{{ activity.name|replace("'", "\\'") }}'); return false;">↓ GPX</a>
     </div>
 </div>
 
-{% if activity.route_id %}
-<p class="mb-4"><strong>Route:</strong> <a href="/routes/{{ activity.route_id }}" class="link">View route</a></p>
-{% else %}
-<form hx-post="/routes"
-      hx-target="#route-status"
-      hx-swap="innerHTML"
-      hx-indicator="#route-spinner"
-      hx-disabled-elt="button[type='submit']"
-      class="flex gap-2 items-center mb-4">
-    <input type="hidden" name="garmin_id" value="{{ activity.garmin_id }}">
-    <input type="text" name="name" placeholder="Route name" required class="input input-bordered input-sm" style="min-width:200px;">
-    <button type="submit" class="btn btn-sm btn-outline">
-        <span class="htmx-indicator" id="route-spinner">
-            <span class="loading loading-spinner loading-sm"></span>
-        </span>
-        Save route
-    </button>
-</form>
-<div id="route-status"></div>
-{% endif %}
+{# ── Key stats ── #}
+<div class="stats stats-horizontal shadow w-full overflow-x-auto mb-6">
+
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Distance</div>
+        <div class="stat-value text-lg">{% if activity.distance %}{{ "%.1f"|format(activity.distance / 1000) }} km{% else %}–{% endif %}</div>
+    </div>
+
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Time</div>
+        <div class="stat-value text-lg">{% if activity.moving_time %}{{ (activity.moving_time // 3600) }}h{{ "%02d"|format((activity.moving_time % 3600) // 60) }}{% else %}–{% endif %}</div>
+    </div>
+
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Elevation</div>
+        <div class="stat-value text-lg">{% if activity.total_elevation_gain %}{{ activity.total_elevation_gain|int }} m{% else %}–{% endif %}</div>
+    </div>
+
+    <div class="stat py-3 px-4">
+        <div class="stat-title">NP</div>
+        <div class="stat-value text-lg">{% if activity.normalized_watts %}{{ activity.normalized_watts|int }} W{% else %}–{% endif %}</div>
+    </div>
+
+    <div class="stat py-3 px-4">
+        <div class="stat-title">TSS</div>
+        <div class="stat-value text-lg">{% if activity.tss %}{{ activity.tss|int }}{% else %}–{% endif %}</div>
+    </div>
+
+    <div class="stat py-3 px-4">
+        <div class="stat-title">RPE</div>
+        <div class="stat-value text-lg">
+            {% if activity.rpe %}
+            {% set rpe = activity.rpe %}
+            {% if rpe <= 30 %}<span class="badge badge-success font-bold text-base">{{ rpe }}/100</span>
+            {% elif rpe <= 60 %}<span class="badge badge-warning font-bold text-base">{{ rpe }}/100</span>
+            {% elif rpe <= 80 %}<span class="badge font-bold text-base" style="background:#FF7043;color:white;border-color:#FF7043;">{{ rpe }}/100</span>
+            {% else %}<span class="badge badge-error font-bold text-base">{{ rpe }}/100</span>
+            {% endif %}
+            {% else %}–{% endif %}
+        </div>
+    </div>
+
+    {% if activity.feel %}
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Feel</div>
+        <div class="stat-value text-lg">{{ feel_labels.get(activity.feel, activity.feel) }}</div>
+    </div>
+    {% endif %}
+
+</div>
+
+{# ── Map + secondary stats ── #}
+<div class="flex flex-col lg:flex-row gap-6 mb-6">
+
+    {# Map — first on mobile, right on desktop #}
+    <div class="flex-1 min-w-0 order-1 lg:order-2">
+        <div id="map" style="height: 420px;"></div>
+    </div>
+
+    {# Secondary stats — second on mobile, left sidebar on desktop #}
+    <div class="order-2 lg:order-1 lg:w-48 shrink-0">
+        <dl class="text-sm space-y-2">
+            {% if activity.average_watts or activity.max_watts %}
+            <div class="flex justify-between gap-2">
+                <dt class="text-base-content/50">Avg Power</dt>
+                <dd class="font-medium tabular-nums">{% if activity.average_watts %}{{ activity.average_watts|int }} W{% else %}–{% endif %}</dd>
+            </div>
+            <div class="flex justify-between gap-2">
+                <dt class="text-base-content/50">Max Power</dt>
+                <dd class="font-medium tabular-nums">{% if activity.max_watts %}{{ activity.max_watts }} W{% else %}–{% endif %}</dd>
+            </div>
+            {% endif %}
+            {% if activity.average_heartrate or activity.max_heartrate %}
+            <div class="flex justify-between gap-2">
+                <dt class="text-base-content/50">Avg HR</dt>
+                <dd class="font-medium tabular-nums">{% if activity.average_heartrate %}{{ activity.average_heartrate|int }} bpm{% else %}–{% endif %}</dd>
+            </div>
+            <div class="flex justify-between gap-2">
+                <dt class="text-base-content/50">Max HR</dt>
+                <dd class="font-medium tabular-nums">{% if activity.max_heartrate %}{{ activity.max_heartrate }} bpm{% else %}–{% endif %}</dd>
+            </div>
+            {% endif %}
+            {% if activity.average_cadence %}
+            <div class="flex justify-between gap-2">
+                <dt class="text-base-content/50">Avg Cadence</dt>
+                <dd class="font-medium tabular-nums">{{ activity.average_cadence|int }} rpm</dd>
+            </div>
+            {% endif %}
+            {% if activity.average_speed %}
+            <div class="flex justify-between gap-2">
+                <dt class="text-base-content/50">Avg Speed</dt>
+                <dd class="font-medium tabular-nums">{{ "%.1f"|format(activity.average_speed * 3.6) }} km/h</dd>
+            </div>
+            {% endif %}
+            {% if activity.intensity_factor %}
+            <div class="flex justify-between gap-2">
+                <dt class="text-base-content/50"><abbr title="Intensity Factor">IF</abbr></dt>
+                <dd class="font-medium tabular-nums">{{ "%.0f"|format(activity.intensity_factor) }}%</dd>
+            </div>
+            {% endif %}
+        </dl>
+
+        {% if activity.route_id %}
+        <div class="mt-4 pt-4 border-t border-base-300 text-sm">
+            <span class="text-base-content/50">Route:</span>
+            <a href="/routes/{{ activity.route_id }}" class="link ml-1">View route</a>
+        </div>
+        {% else %}
+        <div class="mt-4 pt-4 border-t border-base-300">
+            <form hx-post="/routes"
+                  hx-target="#route-status"
+                  hx-swap="innerHTML"
+                  hx-indicator="#route-spinner"
+                  hx-disabled-elt="button[type='submit']"
+                  class="flex flex-col gap-2">
+                <input type="hidden" name="garmin_id" value="{{ activity.garmin_id }}">
+                <input type="text" name="name" placeholder="Route name" required class="input input-bordered input-xs w-full">
+                <button type="submit" class="btn btn-xs btn-outline w-full">
+                    <span class="htmx-indicator" id="route-spinner">
+                        <span class="loading loading-spinner loading-xs"></span>
+                    </span>
+                    Save as route
+                </button>
+            </form>
+            <div id="route-status"></div>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+
+{# ── Notes ── #}
+{% include "activities/_notes.html" %}
 
 {% if activity.description %}
-<h2 class="text-lg font-semibold mb-2">Description</h2>
-<p>{{ activity.description }}</p>
+<p class="text-base-content/60 text-sm mt-4">{{ activity.description }}</p>
 {% endif %}
 
 <script>
