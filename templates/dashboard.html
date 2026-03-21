@@ -8,58 +8,21 @@
 <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 {% endblock %}
 
-{% macro fmt_time(seconds) %}{{ (seconds // 3600)|int }}h {{ "%02d"|format((seconds % 3600) // 60) }}m{% endmacro %}
-
-{% macro recap_table(rows) %}
-<div class="overflow-x-auto">
-<table class="table table-sm w-full">
-    <thead>
-        <tr>
-            <th>Period</th>
-            <th>Total Dist</th>
-            <th>Total Time</th>
-            <th></th>
-            <th>Rides</th>
-            <th>Distance</th>
-            <th>Time</th>
-            <th>Elevation</th>
-            <th><abbr title="Training Stress Score">TSS</abbr></th>
-            <th>Avg <abbr title="Rating of Perceived Exertion">RPE</abbr></th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for row in rows %}
-        {% set outer = loop %}
-        {% for t, s in row.stats.by_type.items() %}
-        <tr class="{% if loop.first and not outer.first %}border-t-2 border-base-300{% endif %}">
-            {% if loop.first %}
-            <td rowspan="{{ row.stats.by_type|length }}" class="font-medium">{{ row.label }}</td>
-            <td rowspan="{{ row.stats.by_type|length }}" class="tabular-nums">{{ "%.0f"|format(row.stats.distance) }} km</td>
-            <td rowspan="{{ row.stats.by_type|length }}" class="tabular-nums">{{ fmt_time(row.stats.time) }}</td>
-            {% endif %}
-            <td title="{{ t }}">{{ type_icons.get(t, t) }}</td>
-            <td class="tabular-nums">{{ s.rides }}</td>
-            <td class="tabular-nums">{{ "%.0f"|format(s.distance) }} km</td>
-            <td class="tabular-nums">{{ fmt_time(s.time) }}</td>
-            <td class="tabular-nums">{{ "%.0f"|format(s.elevation) }} m</td>
-            <td class="tabular-nums">{{ "%.0f"|format(s.tss) }}</td>
-            <td class="tabular-nums">{% if s.avg_rpe %}{{ "%.1f"|format(s.avg_rpe) }}{% else %}–{% endif %}</td>
-        </tr>
-        {% endfor %}
-        {% endfor %}
-    </tbody>
-</table>
-</div>
-{% endmacro %}
-
 {% set type_icons = {"road_biking": "🚴", "gravel_cycling": "🪨", "indoor_cycling": "🏠", "e_bike_mountain": "⚡", "cycling": "🚲"} %}
 
 {% block content %}
 <h1 class="text-xl font-bold mb-5">Dashboard</h1>
 
-<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">Weekly Progress</h2>
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">By Month</h2>
 <div class="card bg-base-100 shadow p-4 mb-6">
-    <div style="height: 380px;">
+    <div style="height: 320px;">
+        <canvas id="monthlyChart"></canvas>
+    </div>
+</div>
+
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">By Week</h2>
+<div class="card bg-base-100 shadow p-4 mb-6">
+    <div style="height: 320px;">
         <canvas id="weeklyChart"></canvas>
     </div>
 </div>
@@ -69,73 +32,115 @@
     <div id="heatmap"></div>
 </div>
 
-<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">By Month</h2>
-<div class="mb-6">{{ recap_table(months) }}</div>
-
-<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">By Week</h2>
-<div class="mb-6">{{ recap_table(weeks) }}</div>
-
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const weeklyData = {{ chart_data|tojson }};
 
-    const ctx = document.getElementById('weeklyChart').getContext('2d');
-    new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: weeklyData.labels,
-            datasets: [
-                {
-                    type: 'bar',
-                    label: 'Distance (km)',
-                    data: weeklyData.distance,
-                    backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1,
-                    yAxisID: 'y'
-                },
-                {
-                    type: 'line',
-                    label: 'Weekly TSS',
-                    data: weeklyData.weeklyTss,
-                    borderColor: 'rgba(255, 99, 132, 1)',
-                    backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                    borderWidth: 2,
-                    fill: false,
-                    tension: 0.1,
-                    yAxisID: 'y1'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    title: { display: true, text: 'Distance (km)' }
-                },
-                y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    title: { display: true, text: 'Weekly TSS' },
-                    grid: { drawOnChartArea: false }
-                }
-            },
-            plugins: {
-                title: { display: true, text: 'Weekly Distance and Weekly TSS' },
-                legend: { display: true }
-            }
+    // ── Shared config ──────────────────────────────────────────────
+    const TYPE_COLORS = {
+        road_biking:     { bg: 'rgba(59, 130, 246, 0.75)',  border: 'rgba(59, 130, 246, 1)' },  // blue-500
+        gravel_cycling:  { bg: 'rgba(245, 158, 11, 0.75)',  border: 'rgba(245, 158, 11, 1)' },  // amber-500
+        indoor_cycling:  { bg: 'rgba(139, 92, 246, 0.75)',  border: 'rgba(139, 92, 246, 1)' },  // violet-500
+        e_bike_mountain: { bg: 'rgba(16, 185, 129, 0.75)',  border: 'rgba(16, 185, 129, 1)' },  // emerald-500
+        cycling:         { bg: 'rgba(236, 72, 153, 0.75)',  border: 'rgba(236, 72, 153, 1)' },  // pink-500
+    };
+    const TYPE_LABELS = {
+        road_biking: '🚴 Road', gravel_cycling: '🪨 Gravel',
+        indoor_cycling: '🏠 Indoor', e_bike_mountain: '⚡ eMTB', cycling: '🚲 Cycling',
+    };
+
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+    const textColor = isDark ? '#9ca3af' : '#6b7280';
+
+    function buildChart(canvasId, periods) {
+        // periods come in reverse-chron; chart reads left→right so reverse
+        const data = [...periods].reverse();
+        const labels = data.map(p => p.label);
+
+        // collect all types present across all periods, in consistent order
+        const allTypes = [];
+        for (const type of Object.keys(TYPE_COLORS)) {
+            if (data.some(p => p.stats.by_type[type])) allTypes.push(type);
         }
-    });
+        // also catch any unknown types
+        data.forEach(p => Object.keys(p.stats.by_type).forEach(t => {
+            if (!allTypes.includes(t)) allTypes.push(t);
+        }));
 
+        const distDatasets = allTypes.map(type => ({
+            type: 'bar',
+            label: TYPE_LABELS[type] || type,
+            data: data.map(p => +(p.stats.by_type[type]?.distance || 0).toFixed(1)),
+            backgroundColor: TYPE_COLORS[type]?.bg || 'rgba(128,128,128,0.7)',
+            borderColor: TYPE_COLORS[type]?.border || 'rgba(128,128,128,1)',
+            borderWidth: 1,
+            stack: 'dist',
+            yAxisID: 'y',
+        }));
+
+        const tssDataset = {
+            type: 'line',
+            label: 'TSS',
+            data: data.map(p => +p.stats.tss.toFixed(0)),
+            borderColor: 'rgba(255, 99, 132, 1)',
+            backgroundColor: 'rgba(255, 99, 132, 0.15)',
+            borderWidth: 2,
+            fill: false,
+            tension: 0.2,
+            pointRadius: 3,
+            yAxisID: 'y1',
+        };
+
+        new Chart(document.getElementById(canvasId), {
+            data: { labels, datasets: [...distDatasets, tssDataset] },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { color: textColor, maxRotation: 45 },
+                        grid: { color: gridColor },
+                    },
+                    y: {
+                        stacked: true,
+                        position: 'left',
+                        title: { display: true, text: 'Distance (km)', color: textColor },
+                        ticks: { color: textColor },
+                        grid: { color: gridColor },
+                    },
+                    y1: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'TSS', color: textColor },
+                        ticks: { color: textColor },
+                        grid: { drawOnChartArea: false },
+                    },
+                },
+                plugins: {
+                    legend: { display: true, labels: { color: textColor, boxWidth: 12 } },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ctx.dataset.yAxisID === 'y1'
+                                ? ` TSS: ${ctx.parsed.y}`
+                                : ` ${ctx.dataset.label}: ${ctx.parsed.y} km`,
+                        }
+                    }
+                },
+            },
+        });
+    }
+
+    const months = {{ months | tojson }};
+    const weeks  = {{ weeks  | tojson }};
+
+    buildChart('monthlyChart', months);
+    buildChart('weeklyChart', weeks);
+
+    // ── Heatmap ────────────────────────────────────────────────────
     const heatmapDiv = document.getElementById('heatmap');
     const heatmap = L.map('heatmap');
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {
+    L.tileLayer(`https://{s}.basemaps.cartocdn.com/${isDark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {
         attribution: '© OpenStreetMap contributors © CARTO',
         subdomains: 'abcd',
         maxZoom: 19,
