@@ -7,17 +7,23 @@
 {% endblock %}
 
 {% block content %}
-<div class="flex items-center gap-2 mb-4">
-    <a href="/routes" class="btn btn-ghost btn-sm">&larr; Routes</a>
-    <h1 id="route-title" class="text-2xl font-bold">{{ route.name }}</h1>
-</div>
 
-<div class="flex gap-2 mb-4">
-    <button class="btn btn-outline btn-sm" onclick="document.getElementById('edit-dialog').showModal()">Edit</button>
-    <form method="post" action="/routes/{{ route.id }}/delete"
-          onsubmit="return confirm('Delete this route? Activities will be unassigned.')">
-        <button type="submit" class="btn btn-error btn-sm">Delete</button>
-    </form>
+{# ── Header ── #}
+<div class="mb-5">
+    <div class="flex items-center gap-2 mb-1">
+        <a href="/routes" class="btn btn-ghost btn-xs">&larr;</a>
+        <h1 id="route-title" class="text-xl font-bold">{{ route.name }}</h1>
+        <button class="btn btn-ghost btn-xs" onclick="document.getElementById('edit-dialog').showModal()">Edit</button>
+        <form method="post" action="/routes/{{ route.id }}/delete"
+              onsubmit="return confirm('Delete this route? Activities will be unassigned.')">
+            <button type="submit" class="btn btn-ghost btn-xs text-error">Delete</button>
+        </form>
+    </div>
+    {% if ref_activity %}
+    <p class="pl-1 text-sm text-base-content/50">
+        Based on <a href="/activities/{{ ref_activity.garmin_id }}" class="link link-hover">{{ ref_activity.start_date.strftime('%Y-%m-%d') }} — {{ ref_activity.name }}</a>
+    </p>
+    {% endif %}
 </div>
 
 <dialog id="edit-dialog" class="modal">
@@ -27,7 +33,6 @@
               hx-target="#route-title"
               hx-swap="outerHTML"
               hx-on::after-request="document.getElementById('edit-dialog').close()">
-            <label class="label"><span class="label-text">Name</span></label>
             <input type="text" name="name" value="{{ route.name }}" required
                    class="input input-bordered w-full mb-4">
             <div class="flex gap-2 justify-end">
@@ -39,22 +44,39 @@
     <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<table class="table table-sm mb-6">
-    <tbody>
-        <tr><th>Canonical activity</th><td>{% if ref_activity %}<a href="/activities/{{ ref_activity.garmin_id }}" class="link">{{ ref_activity.start_date.strftime('%Y-%m-%d') }} — {{ ref_activity.name }}</a>{% else %}–{% endif %}</td></tr>
-        <tr><th>Rides</th><td>{{ stats.count }}</td></tr>
-        <tr><th>Avg Distance</th><td>{% if stats.avg_distance %}{{ "%.1f"|format(stats.avg_distance) }} km{% else %}–{% endif %}</td></tr>
-        <tr><th>Best Distance</th><td>{% if stats.best_distance %}{{ "%.1f"|format(stats.best_distance) }} km{% else %}–{% endif %}</td></tr>
-        <tr><th>Avg TSS</th><td>{% if stats.avg_tss %}{{ "%.0f"|format(stats.avg_tss) }}{% else %}–{% endif %}</td></tr>
-        <tr><th>Best TSS</th><td>{% if stats.best_tss %}{{ "%.0f"|format(stats.best_tss) }}{% else %}–{% endif %}</td></tr>
-        <tr><th>Garmin Course</th><td>{% include "routes/_course_url.html" %}</td></tr>
-    </tbody>
-</table>
-
-{% if polylines %}
-<div class="card bg-base-100 shadow mb-4">
-    <div id="map"></div>
+{# ── Route stats ── #}
+<div class="stats stats-horizontal shadow w-full overflow-x-auto mb-5">
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Rides</div>
+        <div class="stat-value text-lg">{{ stats.count }}</div>
+    </div>
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Avg Distance</div>
+        <div class="stat-value text-lg">{% if stats.avg_distance %}{{ "%.1f"|format(stats.avg_distance) }} km{% else %}–{% endif %}</div>
+    </div>
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Best Distance</div>
+        <div class="stat-value text-lg">{% if stats.best_distance %}{{ "%.1f"|format(stats.best_distance) }} km{% else %}–{% endif %}</div>
+    </div>
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Avg TSS</div>
+        <div class="stat-value text-lg">{% if stats.avg_tss %}{{ "%.0f"|format(stats.avg_tss) }}{% else %}–{% endif %}</div>
+    </div>
+    <div class="stat py-3 px-4">
+        <div class="stat-title">Best TSS</div>
+        <div class="stat-value text-lg">{% if stats.best_tss %}{{ "%.0f"|format(stats.best_tss) }}{% else %}–{% endif %}</div>
+    </div>
 </div>
+
+{# ── Garmin course link ── #}
+<div class="mb-5 text-sm flex items-center gap-2">
+    <span class="text-base-content/50">Garmin Course</span>
+    {% include "routes/_course_url.html" %}
+</div>
+
+{# ── Map ── #}
+{% if polylines %}
+<div id="map" class="mb-6"></div>
 <script>
 const map = L.map('map');
 const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -113,8 +135,9 @@ map.fitBounds(bounds, { padding: [20, 20] });
 </script>
 {% endif %}
 
+{# ── Ride history ── #}
 {% if activities %}
-<h2 class="text-lg font-semibold mb-2">Ride History</h2>
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">Ride History</h2>
 <div class="overflow-x-auto">
 <table class="table table-sm table-zebra w-full">
     <thead>
@@ -132,13 +155,13 @@ map.fitBounds(bounds, { padding: [20, 20] });
     <tbody>
         {% for a in activities %}
         <tr>
-            <td><a href="/activities/{{ a.garmin_id }}" class="link">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
+            <td><a href="/activities/{{ a.garmin_id }}" class="link link-hover">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
             <td>{{ a.name }}</td>
-            <td>{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
-            <td>{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
-            <td>{% if a.total_elevation_gain %}{{ a.total_elevation_gain|int }} m{% else %}–{% endif %}</td>
-            <td>{% if a.normalized_watts %}{{ a.normalized_watts|int }} W{% else %}–{% endif %}</td>
-            <td>{% if a.tss %}{{ a.tss|int }}{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.total_elevation_gain %}{{ a.total_elevation_gain|int }} m{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.normalized_watts %}{{ a.normalized_watts|int }} W{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.tss %}{{ a.tss|int }}{% else %}–{% endif %}</td>
             <td>{% if a.rpe %}{{ a.rpe }}{% else %}–{% endif %}</td>
         </tr>
         {% endfor %}
@@ -146,6 +169,6 @@ map.fitBounds(bounds, { padding: [20, 20] });
 </table>
 </div>
 {% else %}
-<p>No matched rides yet.</p>
+<p class="text-base-content/50 text-sm">No matched rides yet.</p>
 {% endif %}
 {% endblock %}

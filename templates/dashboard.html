@@ -29,20 +29,21 @@
     </thead>
     <tbody>
         {% for row in rows %}
+        {% set outer = loop %}
         {% for t, s in row.stats.by_type.items() %}
-        <tr{% if loop.first %} class="period-start"{% endif %}>
+        <tr class="{% if loop.first and not outer.first %}border-t-2 border-base-300{% endif %}">
             {% if loop.first %}
-            <td rowspan="{{ row.stats.by_type|length }}">{{ row.label }}</td>
-            <td rowspan="{{ row.stats.by_type|length }}">{{ "%.0f"|format(row.stats.distance) }} km</td>
-            <td rowspan="{{ row.stats.by_type|length }}">{{ fmt_time(row.stats.time) }}</td>
+            <td rowspan="{{ row.stats.by_type|length }}" class="font-medium">{{ row.label }}</td>
+            <td rowspan="{{ row.stats.by_type|length }}" class="tabular-nums">{{ "%.0f"|format(row.stats.distance) }} km</td>
+            <td rowspan="{{ row.stats.by_type|length }}" class="tabular-nums">{{ fmt_time(row.stats.time) }}</td>
             {% endif %}
             <td title="{{ t }}">{{ type_icons.get(t, t) }}</td>
-            <td>{{ s.rides }}</td>
-            <td>{{ "%.0f"|format(s.distance) }} km</td>
-            <td>{{ fmt_time(s.time) }}</td>
-            <td>{{ "%.0f"|format(s.elevation) }} m</td>
-            <td>{{ "%.0f"|format(s.tss) }}</td>
-            <td>{% if s.avg_rpe %}{{ "%.1f"|format(s.avg_rpe) }}{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{{ s.rides }}</td>
+            <td class="tabular-nums">{{ "%.0f"|format(s.distance) }} km</td>
+            <td class="tabular-nums">{{ fmt_time(s.time) }}</td>
+            <td class="tabular-nums">{{ "%.0f"|format(s.elevation) }} m</td>
+            <td class="tabular-nums">{{ "%.0f"|format(s.tss) }}</td>
+            <td class="tabular-nums">{% if s.avg_rpe %}{{ "%.1f"|format(s.avg_rpe) }}{% else %}–{% endif %}</td>
         </tr>
         {% endfor %}
         {% endfor %}
@@ -54,29 +55,28 @@
 {% set type_icons = {"road_biking": "🚴", "gravel_cycling": "🪨", "indoor_cycling": "🏠", "e_bike_mountain": "⚡", "cycling": "🚲"} %}
 
 {% block content %}
-<h1 class="text-2xl font-bold mb-4">Dashboard</h1>
+<h1 class="text-xl font-bold mb-5">Dashboard</h1>
 
-<h2 class="text-lg font-semibold mb-2">Weekly Progress</h2>
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">Weekly Progress</h2>
 <div class="card bg-base-100 shadow p-4 mb-6">
-    <div style="width: 100%; height: 400px;">
+    <div style="height: 380px;">
         <canvas id="weeklyChart"></canvas>
     </div>
 </div>
 
-<h2 class="text-lg font-semibold mb-2">Activities Heatmap</h2>
-<div class="card bg-base-100 shadow mb-6">
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">Activities Heatmap</h2>
+<div class="mb-6">
     <div id="heatmap" style="height: 400px;"></div>
 </div>
 
-<h2 class="text-lg font-semibold mb-2">By Month</h2>
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">By Month</h2>
 <div class="mb-6">{{ recap_table(months) }}</div>
 
-<h2 class="text-lg font-semibold mb-2">By Week</h2>
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">By Week</h2>
 <div class="mb-6">{{ recap_table(weeks) }}</div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Weekly chart functionality
     const weeklyData = {{ chart_data|tojson }};
 
     const ctx = document.getElementById('weeklyChart').getContext('2d');
@@ -115,40 +115,25 @@ document.addEventListener('DOMContentLoaded', function() {
                     type: 'linear',
                     display: true,
                     position: 'left',
-                    title: {
-                        display: true,
-                        text: 'Distance (km)'
-                    }
+                    title: { display: true, text: 'Distance (km)' }
                 },
                 y1: {
                     type: 'linear',
                     display: true,
                     position: 'right',
-                    title: {
-                        display: true,
-                        text: 'Weekly TSS'
-                    },
-                    grid: {
-                        drawOnChartArea: false,
-                    }
+                    title: { display: true, text: 'Weekly TSS' },
+                    grid: { drawOnChartArea: false }
                 }
             },
             plugins: {
-                title: {
-                    display: true,
-                    text: 'Weekly Distance and Weekly TSS'
-                },
-                legend: {
-                    display: true
-                }
+                title: { display: true, text: 'Weekly Distance and Weekly TSS' },
+                legend: { display: true }
             }
         }
     });
 
-    // Heatmap functionality
     const heatmapDiv = document.getElementById('heatmap');
     const heatmap = L.map('heatmap');
-
     const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_all' : 'light_all'}/{z}/{x}/{y}{r}.png`, {
         attribution: '© OpenStreetMap contributors © CARTO',
@@ -157,58 +142,27 @@ document.addEventListener('DOMContentLoaded', function() {
     }).addTo(heatmap);
 
     fetch('/heatmap/data')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(data => {
-            if (data.error) {
-                throw new Error(data.error);
-            }
-
-            if (data && Array.isArray(data) && data.length > 0) {
-                const validPoints = data.filter(point =>
-                    Array.isArray(point) && point.length >= 3 &&
-                    typeof point[0] === 'number' && typeof point[1] === 'number' &&
-                    typeof point[2] === 'number' &&
-                    point[0] >= -90 && point[0] <= 90 &&
-                    point[1] >= -180 && point[1] <= 180 &&
-                    point[2] > 0
-                );
-
-                if (validPoints.length > 0) {
-                    const heat = L.heatLayer(validPoints, {
-                        radius: 8,
-                        blur: 5,
-                        maxZoom: 18,
-                        gradient: {
-                            0.0: '#0000ff',
-                            0.3: '#00ffff',
-                            0.5: '#00ff00',
-                            0.7: '#ffff00',
-                            0.9: '#ff8000',
-                            1.0: '#ff0000'
-                        }
-                    }).addTo(heatmap);
-
-                    const coords = validPoints.map(point => [point[0], point[1]]);
-                    const group = new L.featureGroup(coords.map(coord => L.marker(coord)));
-                    heatmap.fitBounds(group.getBounds(), {
-                        padding: [30, 30],
-                        maxZoom: 13
-                    });
-                } else {
-                    heatmapDiv.innerHTML = '<p class="text-center p-12 text-base-content/50">No valid route data available for heatmap.</p>';
-                }
+            if (data.error) throw new Error(data.error);
+            const validPoints = (data || []).filter(p =>
+                Array.isArray(p) && p.length >= 3 &&
+                typeof p[0] === 'number' && typeof p[1] === 'number' && typeof p[2] === 'number' &&
+                p[0] >= -90 && p[0] <= 90 && p[1] >= -180 && p[1] <= 180 && p[2] > 0
+            );
+            if (validPoints.length > 0) {
+                L.heatLayer(validPoints, {
+                    radius: 8, blur: 5, maxZoom: 18,
+                    gradient: { 0.0: '#0000ff', 0.3: '#00ffff', 0.5: '#00ff00', 0.7: '#ffff00', 0.9: '#ff8000', 1.0: '#ff0000' }
+                }).addTo(heatmap);
+                const group = new L.featureGroup(validPoints.map(p => L.marker([p[0], p[1]])));
+                heatmap.fitBounds(group.getBounds(), { padding: [30, 30], maxZoom: 13 });
             } else {
-                heatmapDiv.innerHTML = '<p class="text-center p-12 text-base-content/50">No route data available for heatmap. Sync some activities with GPS tracks!</p>';
+                heatmapDiv.innerHTML = '<p class="text-center p-12 text-base-content/50">No valid route data available.</p>';
             }
         })
-        .catch(error => {
-            console.error('Error loading heatmap data:', error);
-            heatmapDiv.innerHTML = `<p class="text-center p-12 text-base-content/50">Failed to load heatmap data: ${error.message}</p>`;
+        .catch(err => {
+            heatmapDiv.innerHTML = `<p class="text-center p-12 text-base-content/50">Failed to load heatmap: ${err.message}</p>`;
         });
 });
 </script>
