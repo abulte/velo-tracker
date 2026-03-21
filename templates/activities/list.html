@@ -9,62 +9,65 @@
 {% endmacro %}
 
 {% macro rpe_badge(rpe) %}
-{% if rpe <= 30 %}
-<span class="rpe-badge rpe-easy">{{ rpe }}</span>
-{% elif rpe <= 60 %}
-<span class="rpe-badge rpe-medium">{{ rpe }}</span>
-{% elif rpe <= 80 %}
-<span class="rpe-badge rpe-hard">{{ rpe }}</span>
-{% else %}
-<span class="rpe-badge rpe-max">{{ rpe }}</span>
+{% if rpe <= 30 %}<span class="badge badge-success font-bold">{{ rpe }}</span>
+{% elif rpe <= 60 %}<span class="badge badge-warning font-bold">{{ rpe }}</span>
+{% elif rpe <= 80 %}<span class="badge badge-hard font-bold">{{ rpe }}</span>
+{% else %}<span class="badge badge-error font-bold">{{ rpe }}</span>
 {% endif %}
 {% endmacro %}
 
 {% block content %}
-<h1>Activities</h1>
+<h1 class="text-xl font-bold mb-4">Activities</h1>
 
-<form hx-post="/activities/sync"
-      hx-target="#sync-result"
-      hx-swap="innerHTML"
-      hx-indicator="#sync-spinner"
-      hx-disabled-elt="button[type='submit']"
-      style="display:inline-flex; gap:.5rem; align-items:center;">
-    <label for="since">Since</label>
-    <input type="date" id="since" name="since"
-           value="{{ (today - timedelta(days=7)).isoformat() }}">
-    <button type="submit">
-        <span class="htmx-indicator" id="sync-spinner"><span class="spinner"></span></span>
-        Sync from Garmin
-    </button>
-</form>
+{# ── Sync toolbar ── #}
+<div class="flex flex-wrap gap-3 items-center mb-5">
+    <form hx-post="/activities/sync"
+          hx-target="#sync-result"
+          hx-swap="innerHTML"
+          hx-indicator="#sync-spinner"
+          hx-disabled-elt="button[type='submit']"
+          class="flex gap-2 items-center">
+        <label for="since" class="text-sm text-base-content/60">Since</label>
+        <input type="date" id="since" name="since"
+               class="input input-bordered input-sm"
+               value="{{ (today - timedelta(days=7)).isoformat() }}">
+        <button type="submit" class="btn btn-primary btn-sm">
+            <span class="htmx-indicator" id="sync-spinner">
+                <span class="loading loading-spinner loading-sm"></span>
+            </span>
+            Sync from Garmin
+        </button>
+    </form>
+    <div id="sync-result"></div>
+</div>
 
-<div id="sync-result"></div>
-
-<form id="filters" hx-get="/activities" hx-target="#activities-list" hx-swap="innerHTML" hx-select="#activities-list" hx-trigger="change">
-    <div class="filter-group">
-        <span class="filter-label">Distance</span>
-        <span class="filter-val" id="dist-lo"></span>
+{# ── Filters ── #}
+<form id="filters" hx-get="/activities" hx-target="#activities-list" hx-swap="innerHTML" hx-select="#activities-list" hx-trigger="change"
+      class="flex flex-wrap gap-4 items-center mb-4">
+    <div class="flex items-center gap-2 text-sm">
+        <span class="text-base-content/50 whitespace-nowrap">Distance</span>
+        <span class="whitespace-nowrap tabular-nums" id="dist-lo"></span>
         <div class="drange">
             <div class="drange-track"><div class="drange-fill"></div></div>
             <input type="range" name="dist_min" min="{{ dist_min_bound }}" max="{{ dist_max_bound }}" value="{{ filters.dist_min or dist_min_bound }}" step="1">
             <input type="range" name="dist_max" min="{{ dist_min_bound }}" max="{{ dist_max_bound }}" value="{{ filters.dist_max or dist_max_bound }}" step="1">
         </div>
-        <span class="filter-val" id="dist-hi"></span>
+        <span class="whitespace-nowrap tabular-nums" id="dist-hi"></span>
     </div>
-    <div class="filter-group">
-        <span class="filter-label">Duration</span>
-        <span class="filter-val" id="dur-lo"></span>
+    <div class="flex items-center gap-2 text-sm">
+        <span class="text-base-content/50 whitespace-nowrap">Duration</span>
+        <span class="whitespace-nowrap tabular-nums" id="dur-lo"></span>
         <div class="drange">
             <div class="drange-track"><div class="drange-fill"></div></div>
             <input type="range" name="dur_min" min="{{ dur_min_bound }}" max="{{ dur_max_bound }}" value="{{ filters.dur_min or dur_min_bound }}" step="1">
             <input type="range" name="dur_max" min="{{ dur_min_bound }}" max="{{ dur_max_bound }}" value="{{ filters.dur_max or dur_max_bound }}" step="1">
         </div>
-        <span class="filter-val" id="dur-hi"></span>
+        <span class="whitespace-nowrap tabular-nums" id="dur-hi"></span>
     </div>
     {% if routes %}
-    <div class="filter-group">
-        <span class="filter-label">Route</span>
-        <select name="route_id" onchange="this.form.dispatchEvent(new Event('change'))">
+    <div class="flex items-center gap-2 text-sm">
+        <span class="text-base-content/50">Route</span>
+        <select name="route_id" class="select select-bordered select-sm" onchange="this.form.dispatchEvent(new Event('change'))">
             <option value="">All routes</option>
             {% for r in routes %}
             <option value="{{ r.id }}"{% if filters.route_id == r.id %} selected{% endif %}>{{ r.name }}</option>
@@ -72,7 +75,7 @@
         </select>
     </div>
     {% endif %}
-    <button type="button" id="reset-filters" onclick="resetFilters()">Reset</button>
+    <button type="button" class="btn btn-ghost btn-xs" onclick="resetFilters()">Reset</button>
 </form>
 
 <script>
@@ -117,9 +120,11 @@ function resetFilters() {
 }
 </script>
 
+{# ── Activities table ── #}
 <div id="activities-list">
 {% if activities %}
-<table class="table-full">
+<div class="overflow-x-auto">
+<table class="table table-sm table-zebra table-pin-rows w-full">
     <thead>
         <tr>
             <th></th>
@@ -141,24 +146,25 @@ function resetFilters() {
         {% for a in activities %}
         <tr>
             <td>{{ activity_type_label(a.activity_type) }}</td>
-            <td><a href="/activities/{{ a.garmin_id }}">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
-            <td>{{ a.name }}</td>
-            <td>{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
-            <td>{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
-            <td>{% if a.total_elevation_gain %}{{ a.total_elevation_gain|int }} m{% else %}–{% endif %}</td>
-            <td>{% if a.normalized_watts %}{{ a.normalized_watts|int }} W{% else %}–{% endif %}</td>
-            <td>{% if a.tss %}{{ a.tss|int }}{% else %}–{% endif %}</td>
-            <td>{% if a.intensity_factor %}{{ "%.0f"|format(a.intensity_factor) }}%{% else %}–{% endif %}</td>
-            <td>{% if a.average_heartrate %}{{ a.average_heartrate|int }}{% else %}–{% endif %}</td>
+            <td><a href="/activities/{{ a.garmin_id }}" class="link link-hover">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
+            <td><a href="/activities/{{ a.garmin_id }}" class="link link-hover">{{ a.name }}</a></td>
+            <td class="tabular-nums">{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.total_elevation_gain %}{{ a.total_elevation_gain|int }} m{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.normalized_watts %}{{ a.normalized_watts|int }} W{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.tss %}{{ a.tss|int }}{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.intensity_factor %}{{ "%.0f"|format(a.intensity_factor) }}%{% else %}–{% endif %}</td>
+            <td class="tabular-nums">{% if a.average_heartrate %}{{ a.average_heartrate|int }}{% else %}–{% endif %}</td>
             <td>{% if a.rpe %}{{ rpe_badge(a.rpe) }}{% else %}–{% endif %}</td>
-            <td>{% if a.feel %}{{ feel_labels.get(a.feel, a.feel) }}{% else %}–{% endif %}</td>
+            <td class="text-sm">{% if a.feel %}{{ feel_labels.get(a.feel, a.feel) }}{% else %}–{% endif %}</td>
             <td>{% if a.notes %}📓{% endif %}</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+</div>
 {% else %}
-<p>No activities yet. Click <strong>Sync</strong> to import from Garmin Connect.</p>
+<p class="text-base-content/50">No activities yet. Click <strong>Sync</strong> to import from Garmin Connect.</p>
 {% endif %}
 </div>
 {% endblock %}

@@ -1,122 +1,48 @@
-button.danger { background: #c62828; border-color: #c62828; }
-button.danger:hover { background: #b71c1c; border-color: #b71c1c; }
-
-body {
-    grid-template-columns: 1fr min(45rem, 90%) 1fr;
+/* External link indicator */
+a[target="_blank"]::after {
+    content: "↗";
+    font-size: 0.7em;
+    margin-left: 0.2em;
+    opacity: 0.5;
+    vertical-align: super;
 }
 
-body > header {
-    padding: 0.5rem 1rem;
-}
-
-body > header > :only-child {
-    margin-block-start: 0.5rem;
-}
-
-main {
-    grid-column: 1 / -1;
-    width: min(80rem, 90%);
-    margin: 0 auto;
-    padding: 0 1rem 4rem;
-}
-
+/* HTMX indicator */
 .htmx-indicator { display: none; }
 .htmx-request .htmx-indicator,
 .htmx-indicator.htmx-request { display: inline-block; }
 
-.spinner {
-    display: inline-block;
-    width: 1em;
-    height: 1em;
-    border: 2px solid currentColor;
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: spin .6s linear infinite;
-    flex-shrink: 0;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
-
-
+/* Map containers */
 #map, #heatmap {
     height: 400px;
-    border-radius: var(--standard-border-radius);
-    margin-bottom: 1.5rem;
+    border-radius: 0.5rem;
     background: #f2f1ec;
     border: 1px solid #d4d4d8;
-    box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-    #map, #heatmap { 
-        background: #0e0e0e; 
-        border-color: #374151;
-    }
-}
-
-@media (max-width: 640px) {
-    #map, #heatmap {
-        height: 300px;
-        margin-bottom: 1rem;
-    }
-}
-
-
-table {
-    font-size: 0.9rem;
-}
-
-.table-full {
-    width: 100%;
-}
-
-.activity-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 1rem 3rem;
-    align-items: start;
+[data-theme="dim"] #map,
+[data-theme="dim"] #heatmap,
+[data-theme="dark"] #map,
+[data-theme="dark"] #heatmap {
+    background: #0e0e0e;
+    border-color: #374151;
 }
 
 @media (max-width: 640px) {
-    .recap-grid,
-    .activity-grid {
-        grid-template-columns: 1fr;
-    }
+    #map, #heatmap { height: 300px; }
 }
 
-#filters {
-    display: flex;
-    gap: 2rem;
-    margin: 1rem 0;
-    align-items: center;
+/* Elevation chart */
+#elevation-chart { max-height: 200px; }
+
+/* RPE hard badge (no DaisyUI orange) */
+.badge-hard {
+    background: #FF7043;
+    color: white;
+    border-color: #FF7043;
 }
 
-.filter-group {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8rem;
-}
-
-.filter-label {
-    color: #888;
-    white-space: nowrap;
-}
-
-.filter-val {
-    white-space: nowrap;
-}
-
-#reset-filters {
-    background: transparent;
-    color: var(--text-light, #888);
-    border-color: var(--border, #aaa);
-    font-size: 0.8rem;
-    padding: 0.2rem 0.6rem;
-}
-
+/* Double-range slider (no DaisyUI equivalent) */
 .drange {
     position: relative;
     width: 200px;
@@ -178,22 +104,11 @@ table {
 .drange input[type=range]::-webkit-slider-runnable-track { background: transparent; }
 .drange input[type=range]::-moz-range-track { background: transparent; }
 
-@media (prefers-color-scheme: dark) {
-    .drange-track { background: #333; }
-    .drange-fill  { background: #555; }
-    .drange input[type=range]::-webkit-slider-thumb { background: #777; }
-    .drange input[type=range]::-moz-range-thumb      { background: #777; }
-}
-
-.rpe-badge {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    font-weight: bold;
-    color: white;
-}
-
-.rpe-easy   { background: #4CAF50; }   /* 1-3 */
-.rpe-medium { background: #FFC107; color: #333; } /* 4-6 */
-.rpe-hard   { background: #FF7043; }   /* 7-8 */
-.rpe-max    { background: #e53935; }   /* 9-10 */
+[data-theme="dim"] .drange-track,
+[data-theme="dark"] .drange-track { background: #333; }
+[data-theme="dim"] .drange-fill,
+[data-theme="dark"] .drange-fill { background: #555; }
+[data-theme="dim"] .drange input[type=range]::-webkit-slider-thumb,
+[data-theme="dark"] .drange input[type=range]::-webkit-slider-thumb { background: #777; }
+[data-theme="dim"] .drange input[type=range]::-moz-range-thumb,
+[data-theme="dark"] .drange input[type=range]::-moz-range-thumb { background: #777; }

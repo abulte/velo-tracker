@@ -1,7 +1,7 @@
 {% if created %}
-<p class="notice">{{ created }} new activit{{ 'y' if created == 1 else 'ies' }} synced.{% if updated %} {{ updated }} updated.{% endif %} <a href="/activities">Refresh</a> to see them.</p>
+<div class="alert alert-success mt-2 py-2 text-sm">{{ created }} new activit{{ 'y' if created == 1 else 'ies' }} synced.{% if updated %} {{ updated }} updated.{% endif %} <a href="/activities" class="link">Refresh</a> to see them.</div>
 {% elif updated %}
-<p class="notice">No new activities. {{ updated }} updated.</p>
+<div class="alert mt-2 py-2 text-sm">No new activities. {{ updated }} updated.</div>
 {% else %}
-<p class="notice">Already up to date.</p>
+<div class="alert mt-2 py-2 text-sm">Already up to date.</div>
 {% endif %}

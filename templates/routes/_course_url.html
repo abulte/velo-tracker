@@ -1,18 +1,20 @@
+<span id="course-url-section">
 {% if route.garmin_course_url %}
-<a href="{{ route.garmin_course_url }}" target="_blank" rel="noopener">Open in Garmin Connect</a>
-<button onclick="this.closest('td').querySelector('.course-edit').style.display='block'; this.style.display='none'">Edit</button>
+<a href="{{ route.garmin_course_url }}" target="_blank" rel="noopener" class="link">Open in Garmin Connect</a>
+<button class="btn btn-ghost btn-xs ml-2" onclick="this.closest('#course-url-section').querySelector('.course-edit').style.display='block'; this.style.display='none'">Edit</button>
 {% else %}
-<button onclick="this.closest('td').querySelector('.course-edit').style.display='block'; this.style.display='none'">Add link</button>
+<button class="btn btn-ghost btn-xs" onclick="this.closest('#course-url-section').querySelector('.course-edit').style.display='block'; this.style.display='none'">Add link</button>
 {% endif %}
 <span class="course-edit" style="display:none">
     <form hx-post="/routes/{{ route.id }}/course"
-          hx-target="closest td"
-          hx-swap="innerHTML"
-          style="display:inline-flex; gap:.5rem; align-items:center;">
+          hx-target="#course-url-section"
+          hx-swap="outerHTML"
+          class="join">
         <input type="url" name="garmin_course_url"
                value="{{ route.garmin_course_url or '' }}"
                placeholder="https://connect.garmin.com/modern/course/…"
-               style="min-width:300px;">
-        <button type="submit">Save</button>
+               class="input input-bordered input-sm join-item w-72 sm:w-96"
+        <button type="submit" class="btn btn-primary btn-sm join-item">Save</button>
     </form>
+</span>
 </span>

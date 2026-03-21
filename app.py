@@ -114,29 +114,7 @@ def dashboard():
     months = [{"key": k, "label": datetime.date(k[0], k[1], 1).strftime("%B %Y"), "stats": _stats(v)}
               for k, v in sorted(by_month.items(), reverse=True)]
 
-    # Prepare chart data (reverse chronological order for display)
-    sorted_weeks = sorted(by_week.items())
-    chart_labels = []
-    chart_distance = []
-    chart_weekly_tss = []
-    
-    for (year, week), activities in sorted_weeks:
-        # Calculate weekly distance in km
-        weekly_distance = sum(a.distance or 0 for a in activities) / 1000
-        # Calculate weekly TSS (not cumulative)
-        weekly_tss = sum(a.tss or 0 for a in activities)
-        
-        chart_labels.append(_week_label(year, week))
-        chart_distance.append(weekly_distance)
-        chart_weekly_tss.append(weekly_tss)
-    
-    chart_data = {
-        "labels": chart_labels,
-        "distance": chart_distance,
-        "weeklyTss": chart_weekly_tss
-    }
-
-    return render_template("dashboard.html", weeks=weeks, months=months, chart_data=chart_data)
+    return render_template("dashboard.html", weeks=weeks, months=months)
 
 
 @app.route("/activities")
@@ -337,9 +315,13 @@ def create_route():
 
     is_htmx = request.headers.get("HX-Request")
     if is_htmx:
+        matched = f"{count} activit{'y' if count == 1 else 'ies'} matched"
         return (
-            f'<p class="notice">Route "<a href="/routes/{route_id}">{name}</a>" saved'
-            f" — {count} activit{'y' if count == 1 else 'ies'} matched.</p>"
+            f'<div id="route-save-area" class="mt-4 pt-4 border-t border-base-300 text-sm">'
+            f'<span class="text-base-content/50">Route:</span> '
+            f'<a href="/routes/{route_id}" class="link">{name}</a>'
+            f'<span class="text-base-content/40 ml-2">({matched})</span>'
+            f'</div>'
         )
     return redirect(url_for("show_route", route_id=route_id))
 
@@ -396,7 +378,7 @@ def edit_route(route_id: int):
         session.add(route)
         session.commit()
 
-    return f'<h1 id="route-title">{name}</h1>'
+    return f'<h1 id="route-title" class="text-xl font-bold">{name}</h1>'
 
 
 @app.route("/routes/<int:route_id>/delete", methods=["POST"])
