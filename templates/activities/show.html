@@ -60,7 +60,7 @@
             {% set rpe = activity.rpe %}
             {% if rpe <= 30 %}<span class="badge badge-success font-bold text-base">{{ rpe }}/100</span>
             {% elif rpe <= 60 %}<span class="badge badge-warning font-bold text-base">{{ rpe }}/100</span>
-            {% elif rpe <= 80 %}<span class="badge font-bold text-base" style="background:#FF7043;color:white;border-color:#FF7043;">{{ rpe }}/100</span>
+            {% elif rpe <= 80 %}<span class="badge badge-hard font-bold text-base">{{ rpe }}/100</span>
             {% else %}<span class="badge badge-error font-bold text-base">{{ rpe }}/100</span>
             {% endif %}
             {% else %}–{% endif %}
