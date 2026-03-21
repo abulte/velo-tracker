@@ -114,29 +114,7 @@ def dashboard():
     months = [{"key": k, "label": datetime.date(k[0], k[1], 1).strftime("%B %Y"), "stats": _stats(v)}
               for k, v in sorted(by_month.items(), reverse=True)]
 
-    # Prepare chart data (reverse chronological order for display)
-    sorted_weeks = sorted(by_week.items())
-    chart_labels = []
-    chart_distance = []
-    chart_weekly_tss = []
-    
-    for (year, week), activities in sorted_weeks:
-        # Calculate weekly distance in km
-        weekly_distance = sum(a.distance or 0 for a in activities) / 1000
-        # Calculate weekly TSS (not cumulative)
-        weekly_tss = sum(a.tss or 0 for a in activities)
-        
-        chart_labels.append(_week_label(year, week))
-        chart_distance.append(weekly_distance)
-        chart_weekly_tss.append(weekly_tss)
-    
-    chart_data = {
-        "labels": chart_labels,
-        "distance": chart_distance,
-        "weeklyTss": chart_weekly_tss
-    }
-
-    return render_template("dashboard.html", weeks=weeks, months=months, chart_data=chart_data)
+    return render_template("dashboard.html", weeks=weeks, months=months)
 
 
 @app.route("/activities")
