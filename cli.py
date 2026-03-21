@@ -30,6 +30,39 @@ def _engine():
     return create_engine(url, echo=False)
 
 
+def _extract_polyline(details: dict) -> list:
+    """Extract [lat, lon, ele] triples from activityDetailMetrics, falling back to geoPolylineDTO."""
+    descriptors = details.get("metricDescriptors", [])
+    idx = {d["key"]: d["metricsIndex"] for d in descriptors}
+    lat_i = idx.get("directLatitude")
+    lon_i = idx.get("directLongitude")
+    ele_i = idx.get("directElevation")
+
+    pairs = []
+    if lat_i is not None and lon_i is not None:
+        for row in details.get("activityDetailMetrics", []):
+            m = row.get("metrics", [])
+            try:
+                lat = m[lat_i]
+                lon = m[lon_i]
+                ele = m[ele_i] if ele_i is not None else None
+                if lat is not None and lon is not None:
+                    pairs.append([lat, lon, ele])
+            except (IndexError, TypeError):
+                continue
+
+    if not pairs:
+        poly = details.get("geoPolylineDTO", {})
+        points = poly.get("polyline", []) if poly else []
+        pairs = [
+            [p["lat"], p["lon"], None]
+            for p in points
+            if p.get("lat") is not None and p.get("lon") is not None
+        ]
+
+    return pairs
+
+
 def _map_activity(item: dict, detail_summary: dict | None = None) -> dict:
     """Map a Garmin Connect activity dict to our model fields.
 
@@ -111,17 +144,11 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             detail = client.get_activity(item["activityId"])
             detail_summary = detail.get("summaryDTO", {}) if detail else {}
 
-            # Fetch polyline for map
+            # Fetch polyline (with elevation) for map
             pairs = []
             try:
                 details = client.get_activity_details(item["activityId"])
-                poly = details.get("geoPolylineDTO", {})
-                points = poly.get("polyline", []) if poly else []
-                pairs = [
-                    [p["lat"], p["lon"]]
-                    for p in points
-                    if p.get("lat") is not None and p.get("lon") is not None
-                ]
+                pairs = _extract_polyline(details)
             except Exception:
                 pass  # no polyline for this activity
 
@@ -269,6 +296,51 @@ def sync(since: str | None):
     with Session(engine) as session:
         result = sync_activities(session, cutoff)
     click.echo(f"Done — new: {result['created']}, updated: {result['updated']}, skipped (non-cycling): {result['skipped']}")
+
+
+@cli.command("enrich-elevation")
+@click.option("--garmin-id", default=None, help="Backfill a single activity by Garmin ID")
+def enrich_elevation(garmin_id: str | None):
+    """Backfill elevation data for existing activities."""
+    from garmin import get_client
+    from models import Activity
+
+    engine = _engine()
+    client = get_client()
+
+    with Session(engine) as session:
+        query = select(Activity).where(Activity.polyline.isnot(None))
+        if garmin_id:
+            query = query.where(Activity.garmin_id == garmin_id)
+        activities = session.exec(query).all()
+
+        click.echo(f"Enriching {len(activities)} activit{'y' if len(activities) == 1 else 'ies'}…")
+        enriched = 0
+        for activity in activities:
+            # Skip if already has elevation
+            poly = activity.polyline or []
+            if poly and any(len(p) > 2 and p[2] is not None for p in poly):
+                click.echo(f"  {activity.garmin_id} already has elevation, skipping")
+                continue
+
+            click.echo(f"  {activity.garmin_id} {activity.name[:40]}… ", nl=False)
+            try:
+                details = client.get_activity_details(activity.garmin_id)
+                pairs = _extract_polyline(details)
+                if pairs:
+                    activity.polyline = pairs
+                    activity.updated_at = datetime.datetime.utcnow()
+                    session.add(activity)
+                    session.commit()
+                    has_ele = sum(1 for p in pairs if len(p) > 2 and p[2] is not None)
+                    click.echo(f"✓ ({len(pairs)} pts, {has_ele} with ele)")
+                    enriched += 1
+                else:
+                    click.echo("no polyline")
+            except Exception as e:
+                click.echo(f"error: {e}")
+
+    click.echo(f"Done — enriched {enriched} activit{'y' if enriched == 1 else 'ies'}.")
 
 
 if __name__ == "__main__":

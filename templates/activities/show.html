@@ -4,6 +4,7 @@
 {% block head %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 {% endblock %}
 
 {% set feel_labels = {0: "😫 Very Weak", 25: "😕 Weak", 50: "😐 Normal", 75: "🙂 Strong", 100: "💪 Very Strong"} %}
@@ -162,6 +163,38 @@
 <p class="text-base-content/60 text-sm mt-4">{{ activity.description }}</p>
 {% endif %}
 
+{%- set has_elevation = namespace(value=false) %}
+{%- if activity.polyline %}
+  {%- for p in activity.polyline %}
+    {%- if p|length > 2 and p[2] is not none %}{% set has_elevation.value = true %}{% endif %}
+  {%- endfor %}
+{%- endif %}
+{% if has_elevation.value %}
+<h2>Elevation Profile</h2>
+<canvas id="elevation-chart" style="max-height:200px;"></canvas>
+
+{% if climbs %}
+<h2>Climbs</h2>
+<table>
+    <thead>
+        <tr><th>#</th><th>Gain</th><th>Length</th><th>Avg Gradient</th><th>Start Ele</th><th>End Ele</th></tr>
+    </thead>
+    <tbody>
+        {% for c in climbs %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ c.elevation_gain|int }} m</td>
+            <td>{{ "%.1f"|format(c.length_m / 1000) }} km</td>
+            <td>{{ c.avg_gradient }}%</td>
+            <td>{{ c.start_ele|int }} m</td>
+            <td>{{ c.end_ele|int }} m</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endif %}
+
 <script>
 function downloadGpx(garminId, defaultName) {
     const name = prompt("GPX file name:", defaultName);
@@ -186,6 +219,74 @@ fetch('/activities/{{ activity.garmin_id }}/streams')
         if (!pairs || !pairs.length) return;
         const line = L.polyline(pairs, { color: '#e53935', weight: 3 }).addTo(map);
         map.fitBounds(line.getBounds(), { padding: [20, 20] });
+
+        // Elevation profile
+        const canvas = document.getElementById('elevation-chart');
+        if (!canvas) return;
+        const hasEle = pairs.some(p => p.length > 2 && p[2] != null);
+        if (!hasEle) { canvas.closest('h2') && canvas.closest('section') || canvas.parentElement.style.setProperty('display', 'none'); return; }
+
+        // Build cumulative distance + elevation arrays
+        const R = 6371000;
+        function haversine(lat1, lon1, lat2, lon2) {
+            const phi1 = lat1 * Math.PI / 180, phi2 = lat2 * Math.PI / 180;
+            const dp = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dp/2)**2 + Math.cos(phi1)*Math.cos(phi2)*Math.sin(dl/2)**2;
+            return 2 * R * Math.asin(Math.sqrt(a));
+        }
+
+        const climbRanges = {{ climbs | tojson }};
+        const chartLabels = [], chartEle = [], chartColors = [];
+        let cumDist = 0;
+        for (let i = 0; i < pairs.length; i++) {
+            const p = pairs[i];
+            if (p.length < 3 || p[2] == null) continue;
+            if (i > 0) {
+                const prev = pairs[i - 1];
+                cumDist += haversine(prev[0], prev[1], p[0], p[1]);
+            }
+            const distKm = cumDist / 1000;
+            chartLabels.push(distKm.toFixed(2));
+            chartEle.push(p[2]);
+            const inClimb = climbRanges.some(c => i >= c.start_idx && i <= c.end_idx);
+            chartColors.push(inClimb ? 'rgba(229,57,53,0.5)' : 'rgba(100,149,237,0.3)');
+        }
+
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+        const textColor = isDark ? '#ccc' : '#555';
+
+        new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: chartLabels,
+                datasets: [{
+                    data: chartEle,
+                    backgroundColor: chartColors,
+                    borderWidth: 0,
+                    barPercentage: 1.0,
+                    categoryPercentage: 1.0,
+                }]
+            },
+            options: {
+                animation: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: textColor,
+                            maxTicksLimit: 8,
+                            callback: (v, i) => chartLabels[i] + ' km',
+                        },
+                        grid: { color: gridColor },
+                    },
+                    y: {
+                        ticks: { color: textColor, callback: v => v + ' m' },
+                        grid: { color: gridColor },
+                    }
+                }
+            }
+        });
     });
 </script>
 {% endblock %}

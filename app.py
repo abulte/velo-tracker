@@ -202,13 +202,16 @@ def sync_activities_route():
 
 @app.route("/activities/<string:garmin_id>")
 def show_activity(garmin_id: str):
+    from climbs import detect_climbs
+
     with get_session() as session:
         activity = session.exec(
             select(Activity).where(Activity.garmin_id == garmin_id)
         ).first()
         if not activity:
             return "Not found", 404
-    return render_template("activities/show.html", activity=activity)
+    climbs = detect_climbs(activity.polyline) if activity.polyline else []
+    return render_template("activities/show.html", activity=activity, climbs=climbs)
 
 
 @app.route("/activities/<string:garmin_id>/streams")
@@ -445,10 +448,13 @@ def activity_gpx(garmin_id: str):
             return "No polyline for this activity", 404
 
     name = request.args.get("name", activity.name)
-    points = "".join(
-        f'    <trkpt lat="{lat}" lon="{lon}"></trkpt>\n'
-        for lat, lon in activity.polyline
-    )
+    pts = []
+    for p in activity.polyline:
+        lat, lon = p[0], p[1]
+        ele = p[2] if len(p) > 2 and p[2] is not None else None
+        ele_tag = f"<ele>{ele}</ele>" if ele is not None else ""
+        pts.append(f'    <trkpt lat="{lat}" lon="{lon}">{ele_tag}</trkpt>\n')
+    points = "".join(pts)
     gpx = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<gpx version="1.1" creator="velo-tracker"'

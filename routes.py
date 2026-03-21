@@ -8,7 +8,7 @@ SIMILARITY_THRESHOLD = 0.7
 
 
 def polyline_to_geohashes(polyline: list) -> set:
-    return {geohash2.encode(lat, lon, GEOHASH_PRECISION) for lat, lon in polyline}
+    return {geohash2.encode(p[0], p[1], GEOHASH_PRECISION) for p in polyline}
 
 
 def similarity(poly_a: list, poly_b: list) -> float:
