@@ -133,10 +133,10 @@
             <a href="/routes/{{ activity.route_id }}" class="link ml-1">View route</a>
         </div>
         {% else %}
-        <div class="mt-4 pt-4 border-t border-base-300">
+        <div id="route-save-area" class="mt-4 pt-4 border-t border-base-300">
             <form hx-post="/routes"
-                  hx-target="#route-status"
-                  hx-swap="innerHTML"
+                  hx-target="#route-save-area"
+                  hx-swap="outerHTML"
                   hx-indicator="#route-spinner"
                   hx-disabled-elt="button[type='submit']"
                   class="flex flex-col gap-2">
@@ -149,7 +149,6 @@
                     Save as route
                 </button>
             </form>
-            <div id="route-status"></div>
         </div>
         {% endif %}
     </div>
@@ -170,28 +169,36 @@
   {%- endfor %}
 {%- endif %}
 {% if has_elevation.value %}
-<h2>Elevation Profile</h2>
-<canvas id="elevation-chart" style="max-height:200px;"></canvas>
+{# ── Elevation profile ── #}
+<div class="card bg-base-100 shadow p-4 mt-6">
+    <h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-3">Elevation Profile</h2>
+    <canvas id="elevation-chart" style="max-height:200px;"></canvas>
+</div>
 
 {% if climbs %}
-<h2>Climbs</h2>
-<table>
-    <thead>
-        <tr><th>#</th><th>Gain</th><th>Length</th><th>Avg Gradient</th><th>Start Ele</th><th>End Ele</th></tr>
-    </thead>
-    <tbody>
-        {% for c in climbs %}
-        <tr>
-            <td>{{ loop.index }}</td>
-            <td>{{ c.elevation_gain|int }} m</td>
-            <td>{{ "%.1f"|format(c.length_m / 1000) }} km</td>
-            <td>{{ c.avg_gradient }}%</td>
-            <td>{{ c.start_ele|int }} m</td>
-            <td>{{ c.end_ele|int }} m</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{# ── Climbs ── #}
+<div class="mt-4">
+    <h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">Climbs</h2>
+    <div class="overflow-x-auto">
+    <table class="table table-sm w-full">
+        <thead>
+            <tr><th>#</th><th>Gain</th><th>Length</th><th>Avg Gradient</th><th>Start Ele</th><th>End Ele</th></tr>
+        </thead>
+        <tbody>
+            {% for c in climbs %}
+            <tr>
+                <td class="text-base-content/50">{{ loop.index }}</td>
+                <td class="tabular-nums font-medium">{{ c.elevation_gain|int }} m</td>
+                <td class="tabular-nums">{{ "%.1f"|format(c.length_m / 1000) }} km</td>
+                <td class="tabular-nums">{{ c.avg_gradient }}%</td>
+                <td class="tabular-nums text-base-content/60">{{ c.start_ele|int }} m</td>
+                <td class="tabular-nums text-base-content/60">{{ c.end_ele|int }} m</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
 {% endif %}
 {% endif %}
 
@@ -224,7 +231,7 @@ fetch('/activities/{{ activity.garmin_id }}/streams')
         const canvas = document.getElementById('elevation-chart');
         if (!canvas) return;
         const hasEle = pairs.some(p => p.length > 2 && p[2] != null);
-        if (!hasEle) { canvas.closest('h2') && canvas.closest('section') || canvas.parentElement.style.setProperty('display', 'none'); return; }
+        if (!hasEle) { canvas.closest('.card').style.display = 'none'; return; }
 
         // Build cumulative distance + elevation arrays
         const R = 6371000;

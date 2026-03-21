@@ -337,9 +337,13 @@ def create_route():
 
     is_htmx = request.headers.get("HX-Request")
     if is_htmx:
+        matched = f"{count} activit{'y' if count == 1 else 'ies'} matched"
         return (
-            f'<p class="notice">Route "<a href="/routes/{route_id}">{name}</a>" saved'
-            f" — {count} activit{'y' if count == 1 else 'ies'} matched.</p>"
+            f'<div id="route-save-area" class="mt-4 pt-4 border-t border-base-300 text-sm">'
+            f'<span class="text-base-content/50">Route:</span> '
+            f'<a href="/routes/{route_id}" class="link">{name}</a>'
+            f'<span class="text-base-content/40 ml-2">({matched})</span>'
+            f'</div>'
         )
     return redirect(url_for("show_route", route_id=route_id))
 
@@ -396,7 +400,7 @@ def edit_route(route_id: int):
         session.add(route)
         session.commit()
 
-    return f'<h1 id="route-title">{name}</h1>'
+    return f'<h1 id="route-title" class="text-xl font-bold">{name}</h1>'
 
 
 @app.route("/routes/<int:route_id>/delete", methods=["POST"])

@@ -156,7 +156,7 @@ map.fitBounds(bounds, { padding: [20, 20] });
         {% for a in activities %}
         <tr>
             <td><a href="/activities/{{ a.garmin_id }}" class="link link-hover">{{ a.start_date.strftime('%Y-%m-%d') }}</a></td>
-            <td>{{ a.name }}</td>
+            <td><a href="/activities/{{ a.garmin_id }}" class="link link-hover">{{ a.name }}</a></td>
             <td class="tabular-nums">{% if a.distance %}{{ "%.0f"|format(a.distance / 1000) }} km{% else %}–{% endif %}</td>
             <td class="tabular-nums">{% if a.moving_time %}{{ (a.moving_time // 3600) }}h{{ "%02d"|format((a.moving_time % 3600) // 60) }}{% else %}–{% endif %}</td>
             <td class="tabular-nums">{% if a.total_elevation_gain %}{{ a.total_elevation_gain|int }} m{% else %}–{% endif %}</td>
