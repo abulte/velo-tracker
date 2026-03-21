@@ -14,7 +14,51 @@
 <h1 class="text-xl font-bold mb-5">Dashboard</h1>
 
 {# ── Form (PMC) ── #}
-<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">Form</h2>
+<div class="flex items-center gap-2 mb-2">
+    <h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide">Form</h2>
+    <button class="btn btn-ghost btn-xs btn-circle text-base-content/40" onclick="document.getElementById('pmc-info').showModal()">?</button>
+</div>
+
+<dialog id="pmc-info" class="modal">
+    <div class="modal-box max-w-lg">
+        <h3 class="font-bold text-lg mb-4">Performance Management Chart</h3>
+
+        <div class="space-y-4 text-sm">
+            <div>
+                <p class="font-semibold text-info mb-1">CTL — Chronic Training Load <span class="font-normal text-base-content/50">(Fitness)</span></p>
+                <p class="text-base-content/70">Exponentially weighted 42-day average of daily TSS. Represents your long-term fitness — how much training stress your body has adapted to. Builds slowly, decays slowly.</p>
+            </div>
+            <div>
+                <p class="font-semibold text-warning mb-1">ATL — Acute Training Load <span class="font-normal text-base-content/50">(Fatigue)</span></p>
+                <p class="text-base-content/70">Exponentially weighted 7-day average of daily TSS. Spikes quickly after hard training and drops fast during rest. Reflects how tired you are right now.</p>
+            </div>
+            <div>
+                <p class="font-semibold mb-1">TSB — Training Stress Balance <span class="font-normal text-base-content/50">(Form)</span></p>
+                <p class="text-base-content/70 mb-2">TSB = CTL − ATL (from the previous day). Positive means fresh, negative means fatigued.</p>
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr><th>TSB</th><th>Zone</th><th>Meaning</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td class="text-success font-mono">&gt; +25</td><td>Fresh / detrained</td><td class="text-base-content/60">Too much rest, fitness decaying</td></tr>
+                        <tr><td class="text-success font-mono">+5 to +25</td><td class="text-success">Good form</td><td class="text-base-content/60">Peak window — race or test</td></tr>
+                        <tr><td class="font-mono">−10 to +5</td><td>Neutral</td><td class="text-base-content/60">Normal training state</td></tr>
+                        <tr><td class="text-error font-mono">−10 to −30</td><td class="text-error">Fatigued</td><td class="text-base-content/60">Heavy training block</td></tr>
+                        <tr><td class="text-error font-mono">&lt; −30</td><td class="text-error">Overreached</td><td class="text-base-content/60">Risk of injury or illness</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="border-t border-base-300 pt-3 text-base-content/50 text-xs">
+                TSS (Training Stress Score) is computed from normalized power and FTP. Values start from 0 at your first synced activity — CTL is accurate after ~6 weeks of data.
+            </div>
+        </div>
+
+        <div class="modal-action">
+            <form method="dialog"><button class="btn btn-sm">Close</button></form>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
 <div class="stats stats-horizontal shadow w-full overflow-x-auto mb-4">
     <div class="stat py-3 px-5">
         <div class="stat-title">Fitness <span class="font-normal opacity-60">CTL</span></div>
