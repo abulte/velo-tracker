@@ -244,6 +244,7 @@ fetch('/activities/{{ activity.garmin_id }}/streams')
 
         const climbRanges = {{ climbs | tojson }};
         const chartLabels = [], chartEle = [], chartColors = [];
+        const chartToPairIdx = []; // chart bar index → pairs array index
         let cumDist = 0;
         for (let i = 0; i < pairs.length; i++) {
             const p = pairs[i];
@@ -257,14 +258,38 @@ fetch('/activities/{{ activity.garmin_id }}/streams')
             chartEle.push(p[2]);
             const inClimb = climbRanges.some(c => i >= c.start_idx && i <= c.end_idx);
             chartColors.push(inClimb ? 'rgba(229,57,53,0.5)' : 'rgba(100,149,237,0.3)');
+            chartToPairIdx.push(i);
         }
+
+        // Reverse mapping: pairs index → chart bar index
+        const pairToChartIdx = new Array(pairs.length).fill(null);
+        chartToPairIdx.forEach((pIdx, cIdx) => { pairToChartIdx[pIdx] = cIdx; });
 
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         const gridColor = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
         const textColor = isDark ? '#ccc' : '#555';
 
-        new Chart(canvas, {
+        // Custom plugin: vertical crosshair line driven by map hover
+        const vlinePlugin = {
+            id: 'vline',
+            afterDraw(chart) {
+                if (chart._hoverX == null) return;
+                const { ctx, chartArea: { top, bottom } } = chart;
+                ctx.save();
+                ctx.beginPath();
+                ctx.moveTo(chart._hoverX, top);
+                ctx.lineTo(chart._hoverX, bottom);
+                ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.4)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 3]);
+                ctx.stroke();
+                ctx.restore();
+            }
+        };
+
+        const chartInst = new Chart(canvas, {
             type: 'bar',
+            plugins: [vlinePlugin],
             data: {
                 labels: chartLabels,
                 datasets: [{
@@ -293,6 +318,50 @@ fetch('/activities/{{ activity.garmin_id }}/streams')
                     }
                 }
             }
+        });
+
+        // ── Chart → Map ──────────────────────────────────────────────
+        // Hovering the elevation chart shows a marker on the map
+        let hoverMarker = null;
+        canvas.addEventListener('mousemove', e => {
+            const els = chartInst.getElementsAtEventForMode(e, 'index', { intersect: false }, false);
+            if (!els.length) return;
+            const pIdx = chartToPairIdx[els[0].index];
+            if (pIdx == null) return;
+            const [lat, lng] = pairs[pIdx];
+            if (!hoverMarker) {
+                hoverMarker = L.circleMarker([lat, lng], {
+                    radius: 6, color: '#fff', weight: 2,
+                    fillColor: '#e53935', fillOpacity: 1
+                }).addTo(map);
+            } else {
+                hoverMarker.setLatLng([lat, lng]);
+            }
+        });
+        canvas.addEventListener('mouseleave', () => {
+            if (hoverMarker) { hoverMarker.remove(); hoverMarker = null; }
+        });
+
+        // ── Map → Chart ──────────────────────────────────────────────
+        // Hovering the polyline draws a vertical line on the elevation chart
+        line.on('mousemove', e => {
+            const { lat, lng } = e.latlng;
+            let best = 0, bestD2 = Infinity;
+            for (let i = 0; i < pairs.length; i++) {
+                const dlat = pairs[i][0] - lat, dlng = pairs[i][1] - lng;
+                const d2 = dlat * dlat + dlng * dlng;
+                if (d2 < bestD2) { bestD2 = d2; best = i; }
+            }
+            const cIdx = pairToChartIdx[best];
+            if (cIdx == null) { chartInst._hoverX = null; chartInst.update('none'); return; }
+            const bar = chartInst.getDatasetMeta(0).data[cIdx];
+            if (!bar) return;
+            chartInst._hoverX = bar.x;
+            chartInst.update('none');
+        });
+        line.on('mouseout', () => {
+            chartInst._hoverX = null;
+            chartInst.update('none');
         });
     });
 </script>
