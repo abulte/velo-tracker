@@ -11,16 +11,27 @@
 {# ── Header ── #}
 <div class="mb-5">
     <div class="flex items-center gap-2 mb-1">
-        <a href="/routes" class="btn btn-ghost btn-xs">&larr;</a>
-        <h1 id="route-title" class="text-xl font-bold">{{ route.name }}</h1>
-        <button class="btn btn-ghost btn-xs" onclick="document.getElementById('edit-dialog').showModal()">Edit</button>
-        <form method="post" action="/routes/{{ route.id }}/delete"
-              onsubmit="return confirm('Delete this route? Activities will be unassigned.')">
-            <button type="submit" class="btn btn-ghost btn-xs text-error">Delete</button>
-        </form>
+        <a href="/routes" class="btn btn-ghost btn-sm btn-square">&larr;</a>
+        <h1 id="route-title" class="text-xl font-bold flex-1">{{ route.name }}</h1>
+        <div class="dropdown dropdown-end">
+            <button tabindex="0" class="btn btn-ghost btn-sm btn-square">
+                <svg xmlns="http://www.w3.org/2000/svg" class="size-4" fill="currentColor" viewBox="0 0 16 16">
+                    <circle cx="8" cy="2" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="8" cy="14" r="1.5"/>
+                </svg>
+            </button>
+            <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box shadow z-10 w-36 p-1">
+                <li><a onclick="document.getElementById('edit-dialog').showModal()">Edit name</a></li>
+                <li>
+                    <form method="post" action="/routes/{{ route.id }}/delete"
+                          onsubmit="return confirm('Delete this route? Activities will be unassigned.')">
+                        <button type="submit" class="text-error w-full text-left">Delete</button>
+                    </form>
+                </li>
+            </ul>
+        </div>
     </div>
     {% if ref_activity %}
-    <p class="pl-1 text-sm text-base-content/50">
+    <p class="pl-8 text-sm text-base-content/50">
         Based on <a href="/activities/{{ ref_activity.garmin_id }}" class="link link-hover">{{ ref_activity.start_date.strftime('%Y-%m-%d') }} — {{ ref_activity.name }}</a>
     </p>
     {% endif %}
