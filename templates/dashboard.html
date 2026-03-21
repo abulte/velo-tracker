@@ -13,6 +13,33 @@
 {% block content %}
 <h1 class="text-xl font-bold mb-5">Dashboard</h1>
 
+{# ── Form (PMC) ── #}
+<h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">Form</h2>
+<div class="stats stats-horizontal shadow w-full overflow-x-auto mb-4">
+    <div class="stat py-3 px-5">
+        <div class="stat-title">Fitness <span class="font-normal opacity-60">CTL</span></div>
+        <div class="stat-value text-lg text-info">{{ "%.0f"|format(current.ctl) }}</div>
+        <div class="stat-desc">42-day load</div>
+    </div>
+    <div class="stat py-3 px-5">
+        <div class="stat-title">Fatigue <span class="font-normal opacity-60">ATL</span></div>
+        <div class="stat-value text-lg text-warning">{{ "%.0f"|format(current.atl) }}</div>
+        <div class="stat-desc">7-day load</div>
+    </div>
+    <div class="stat py-3 px-5">
+        <div class="stat-title">Form <span class="font-normal opacity-60">TSB</span></div>
+        <div class="stat-value text-lg {% if current.tsb > 5 %}text-success{% elif current.tsb < -10 %}text-error{% endif %}">
+            {{ "%+.0f"|format(current.tsb) }}
+        </div>
+        <div class="stat-desc">{% if current.tsb > 25 %}Fresh / detrained{% elif current.tsb > 5 %}Good form{% elif current.tsb > -10 %}Neutral{% elif current.tsb > -30 %}Fatigued{% else %}Overreached{% endif %}</div>
+    </div>
+</div>
+<div class="card bg-base-100 shadow p-4 mb-6">
+    <div style="height: 260px;">
+        <canvas id="pmcChart"></canvas>
+    </div>
+</div>
+
 <h2 class="text-base font-semibold text-base-content/60 uppercase tracking-wide mb-2">By Month</h2>
 <div class="card bg-base-100 shadow p-4 mb-6">
     <div style="height: 320px;">
@@ -136,6 +163,79 @@ document.addEventListener('DOMContentLoaded', function() {
 
     buildChart('monthlyChart', months);
     buildChart('weeklyChart', weeks);
+
+    // ── PMC chart ──────────────────────────────────────────────────
+    const pmcAll = {{ pmc | tojson }};
+    // Show last 180 days for readability; full history still used for correct CTL/ATL
+    const pmc = pmcAll.slice(-180);
+    new Chart(document.getElementById('pmcChart'), {
+        data: {
+            labels: pmc.map(d => d.date),
+            datasets: [
+                {
+                    type: 'bar',
+                    label: 'TSB (Form)',
+                    data: pmc.map(d => d.tsb),
+                    backgroundColor: pmc.map(d => d.tsb >= 0
+                        ? 'rgba(34, 197, 94, 0.55)'    // green-500
+                        : 'rgba(239, 68, 68, 0.55)'),   // red-500
+                    borderWidth: 0,
+                    barPercentage: 1.0,
+                    categoryPercentage: 1.0,
+                    yAxisID: 'y',
+                },
+                {
+                    type: 'line',
+                    label: 'CTL (Fitness)',
+                    data: pmc.map(d => d.ctl),
+                    borderColor: 'rgba(59, 130, 246, 1)',    // blue-500
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.3,
+                    yAxisID: 'y',
+                },
+                {
+                    type: 'line',
+                    label: 'ATL (Fatigue)',
+                    data: pmc.map(d => d.atl),
+                    borderColor: 'rgba(245, 158, 11, 1)',    // amber-500
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.3,
+                    yAxisID: 'y',
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    ticks: {
+                        color: textColor,
+                        maxTicksLimit: 10,
+                        callback: (_, i) => pmc[i]?.date.slice(5), // MM-DD
+                    },
+                    grid: { color: gridColor },
+                },
+                y: {
+                    ticks: { color: textColor },
+                    grid: { color: gridColor },
+                },
+            },
+            plugins: {
+                legend: { display: true, labels: { color: textColor, boxWidth: 12 } },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y > 0 ? '+' : ''}${ctx.parsed.y.toFixed(1)}`,
+                    }
+                },
+            },
+        },
+    });
 
     // ── Heatmap ────────────────────────────────────────────────────
     const heatmapDiv = document.getElementById('heatmap');

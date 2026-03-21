@@ -86,6 +86,46 @@ def index():
     return redirect(url_for("dashboard"))
 
 
+def _compute_pmc(activities):
+    """Compute daily CTL, ATL, TSB (Performance Management Chart)."""
+    import math
+
+    if not activities:
+        return []
+
+    daily_tss: dict[datetime.date, float] = {}
+    for a in activities:
+        d = a.start_date.date() if isinstance(a.start_date, datetime.datetime) else a.start_date
+        daily_tss[d] = daily_tss.get(d, 0) + (a.tss or 0)
+
+    start = min(daily_tss)
+    end = datetime.date.today()
+
+    ctl_k = math.exp(-1 / 42)
+    atl_k = math.exp(-1 / 7)
+    ctl_f = 1 - ctl_k
+    atl_f = 1 - atl_k
+
+    ctl = atl = 0.0
+    result = []
+    d = start
+    while d <= end:
+        tss = daily_tss.get(d, 0)
+        tsb = round(ctl - atl, 1)   # yesterday's balance = today's form
+        ctl = ctl * ctl_k + tss * ctl_f
+        atl = atl * atl_k + tss * atl_f
+        result.append({
+            "date": d.isoformat(),
+            "tss": round(tss, 0),
+            "ctl": round(ctl, 1),
+            "atl": round(atl, 1),
+            "tsb": tsb,
+        })
+        d += datetime.timedelta(days=1)
+
+    return result
+
+
 @app.route("/dashboard")
 def dashboard():
     with get_session() as session:
@@ -114,7 +154,10 @@ def dashboard():
     months = [{"key": k, "label": datetime.date(k[0], k[1], 1).strftime("%B %Y"), "stats": _stats(v)}
               for k, v in sorted(by_month.items(), reverse=True)]
 
-    return render_template("dashboard.html", weeks=weeks, months=months)
+    pmc = _compute_pmc(list(activities))
+    current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
+
+    return render_template("dashboard.html", weeks=weeks, months=months, pmc=pmc, current=current)
 
 
 @app.route("/activities")
