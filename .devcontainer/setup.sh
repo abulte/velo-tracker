@@ -8,16 +8,16 @@ echo "📦 Installing uv..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source /home/vscode/.cargo/env
 
-# Install PostgreSQL client for pg_isready
-echo "📦 Installing PostgreSQL client..."
-sudo apt-get update && sudo apt-get install -y postgresql-client
-
-# Wait for PostgreSQL to be ready
+# Wait for PostgreSQL to be ready (started by feature)
 echo "⏳ Waiting for PostgreSQL to start..."
-until pg_isready -h db -p 5432 -U postgres; do
+until pg_isready -h localhost -p 5432 -U postgres; do
   echo "Waiting for PostgreSQL..."
   sleep 2
 done
+
+# Create the database if it doesn't exist
+echo "🗃️  Creating database..."
+createdb -h localhost -U postgres velodb 2>/dev/null || echo "Database already exists"
 
 # Install Python dependencies
 echo "🐍 Installing Python dependencies..."
@@ -33,7 +33,7 @@ if [ ! -f .env ]; then
   cat > .env << EOF
 FLASK_APP=app
 FLASK_DEBUG=1
-DATABASE_URL=postgresql://postgres:postgres@db:5432/velodb
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/velodb
 SECRET_KEY=dev-secret-key-change-in-production
 EOF
 fi

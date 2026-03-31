@@ -2,11 +2,19 @@
 
 This directory contains the configuration for GitHub Codespaces development environment.
 
+## Architecture
+
+**Simple single-container setup:**
+- **Python 3.12** base container
+- **PostgreSQL 17** via devcontainer feature (runs inside same container)
+- **Direct dependency installation** with `uv`
+- **VS Code extensions** for Python development
+
 ## What's included
 
 - **Python 3.12** runtime environment
-- **uv** package manager for fast dependency installation
-- **PostgreSQL 17** database service
+- **uv** package manager for fast dependency installation  
+- **PostgreSQL 17** database (via devcontainer feature)
 - **VS Code extensions** for Python development (Ruff, Black, etc.)
 - **Port forwarding** for Flask app (5000) and PostgreSQL (5432)
 
@@ -15,10 +23,11 @@ This directory contains the configuration for GitHub Codespaces development envi
 When you create a new codespace, the setup script will automatically:
 
 1. Install `uv` package manager
-2. Wait for PostgreSQL database service to be ready
-3. Install Python dependencies with `uv sync`
-4. Run database migrations with `alembic upgrade head`
-5. Create a default `.env` file
+2. Wait for PostgreSQL to be ready (started by feature)
+3. Create the `velodb` database
+4. Install Python dependencies with `uv sync`
+5. Run database migrations with `alembic upgrade head`
+6. Create a default `.env` file
 
 ## Getting started
 
@@ -87,19 +96,19 @@ The following environment variables are pre-configured:
 
 - `FLASK_APP=app`
 - `FLASK_DEBUG=1`
-- `DATABASE_URL=postgresql://postgres:postgres@db:5432/velodb`
+- `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/velodb`
 - `SECRET_KEY=dev-secret-key-change-in-production`
 
 ## Database access
 
-PostgreSQL is accessible at `db:5432` (or `localhost:5432` via port forwarding) with:
+PostgreSQL is accessible at `localhost:5432` with:
 - Username: `postgres`
 - Password: `postgres`
 - Database: `velodb`
 
 ## Troubleshooting
 
-If the database isn't accessible, restart the codespace or check that the PostgreSQL service is running.
+If the database isn't accessible, restart the codespace. PostgreSQL runs as a feature inside the container.
 
 If dependencies aren't installed, run:
 

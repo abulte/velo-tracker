@@ -1,13 +1,18 @@
 {
   "name": "velo-tracker",
-  "dockerComposeFile": "docker-compose.yml",
-  "service": "app",
-  "workspaceFolder": "/workspaces/velo-tracker",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bullseye",
+
+  "features": {
+    "ghcr.io/devcontainers/features/postgres:1": {
+      "version": "17",
+      "postgresPassword": "postgres"
+    }
+  },
 
   "containerEnv": {
     "FLASK_APP": "app",
     "FLASK_DEBUG": "1",
-    "DATABASE_URL": "postgresql://postgres:postgres@db:5432/velodb",
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/velodb",
     "SECRET_KEY": "dev-secret-key-change-in-production"
   },
 
