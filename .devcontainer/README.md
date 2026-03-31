@@ -6,7 +6,7 @@ This directory contains the configuration for GitHub Codespaces development envi
 
 **Simple single-container setup:**
 - **Python 3.12** base container
-- **PostgreSQL 17** via devcontainer feature (runs inside same container)
+- **PostgreSQL** installed and configured during setup
 - **Direct dependency installation** with `uv`
 - **VS Code extensions** for Python development
 
@@ -14,7 +14,7 @@ This directory contains the configuration for GitHub Codespaces development envi
 
 - **Python 3.12** runtime environment
 - **uv** package manager for fast dependency installation  
-- **PostgreSQL 17** database (via devcontainer feature)
+- **PostgreSQL** database (installed during setup)
 - **VS Code extensions** for Python development (Ruff, Black, etc.)
 - **Port forwarding** for Flask app (5000) and PostgreSQL (5432)
 
@@ -23,11 +23,12 @@ This directory contains the configuration for GitHub Codespaces development envi
 When you create a new codespace, the setup script will automatically:
 
 1. Install `uv` package manager
-2. Wait for PostgreSQL to be ready (started by feature)
-3. Create the `velodb` database
-4. Install Python dependencies with `uv sync`
-5. Run database migrations with `alembic upgrade head`
-6. Create a default `.env` file
+2. Install and configure PostgreSQL
+3. Start PostgreSQL service and set up authentication
+4. Create the `velodb` database
+5. Install Python dependencies with `uv sync`
+6. Run database migrations with `alembic upgrade head`
+7. Create a default `.env` file
 
 ## Getting started
 
@@ -108,7 +109,10 @@ PostgreSQL is accessible at `localhost:5432` with:
 
 ## Troubleshooting
 
-If the database isn't accessible, restart the codespace. PostgreSQL runs as a feature inside the container.
+If the database isn't accessible, try:
+- Restart PostgreSQL: `sudo service postgresql restart`
+- Check service status: `sudo service postgresql status` 
+- Or restart the codespace for a full reset
 
 If dependencies aren't installed, run:
 

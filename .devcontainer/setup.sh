@@ -8,16 +8,26 @@ echo "📦 Installing uv..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source /home/vscode/.cargo/env
 
-# Wait for PostgreSQL to be ready (started by feature)
-echo "⏳ Waiting for PostgreSQL to start..."
+# Install and setup PostgreSQL
+echo "📦 Installing PostgreSQL..."
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-contrib
+
+# Start PostgreSQL service
+echo "🔄 Starting PostgreSQL service..."
+sudo service postgresql start
+
+# Setup PostgreSQL user and database
+echo "🗃️  Setting up database..."
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
+sudo -u postgres createdb velodb 2>/dev/null || echo "Database already exists"
+
+# Wait for PostgreSQL to be ready
+echo "⏳ Waiting for PostgreSQL to be ready..."
 until pg_isready -h localhost -p 5432 -U postgres; do
   echo "Waiting for PostgreSQL..."
   sleep 2
 done
-
-# Create the database if it doesn't exist
-echo "🗃️  Creating database..."
-createdb -h localhost -U postgres velodb 2>/dev/null || echo "Database already exists"
 
 # Install Python dependencies
 echo "🐍 Installing Python dependencies..."
