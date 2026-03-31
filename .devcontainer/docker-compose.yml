@@ -5,7 +5,7 @@ services:
     image: mcr.microsoft.com/devcontainers/python:1-3.12-bullseye
     volumes:
       - ../..:/workspaces:cached
-    working_dir: /workspace
+    working_dir: /workspaces/velo-tracker
     command: sleep infinity
     user: vscode
     environment:

@@ -2,7 +2,7 @@
   "name": "velo-tracker",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
-  "workspaceFolder": "/workspace",
+  "workspaceFolder": "/workspaces/velo-tracker",
 
   "containerEnv": {
     "FLASK_APP": "app",
