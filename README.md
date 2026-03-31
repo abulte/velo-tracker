@@ -35,11 +35,12 @@ For any environment, use the bootstrap script for complete setup:
 ```
 
 This will:
-- Set up the development environment
 - Prompt for Garmin Connect authentication  
 - Sync 1 month of cycling activities
 - Test the Flask application
 - Provide next steps and usage instructions
+
+(Note: Assumes development environment is already set up)
 
 ## Manual Setup
 

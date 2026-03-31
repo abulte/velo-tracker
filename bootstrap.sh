@@ -4,10 +4,13 @@ set -e
 echo "🚀 velo-tracker Bootstrap Script"
 echo "================================="
 echo
-echo "This script will set up a fully working velo-tracker environment with:"
-echo "  1. Complete development setup"
-echo "  2. Garmin Connect authentication" 
-echo "  3. Sample cycling data (1 month of activities)"
+echo "This script will bootstrap your velo-tracker environment with:"
+echo "  1. Garmin Connect authentication" 
+echo "  2. Sample cycling data (1 month of activities)"
+echo "  3. Application verification"
+echo
+echo "Prerequisites: Development environment should already be set up"
+echo "(dependencies installed, database running, migrations applied)"
 echo
 echo "You'll need your Garmin Connect credentials to proceed."
 echo
@@ -20,49 +23,7 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo
-echo "🔧 Step 1: Setting up development environment..."
-echo "================================================"
-
-# Run the devcontainer setup script if it exists
-if [ -f .devcontainer/setup.sh ]; then
-    .devcontainer/setup.sh
-else
-    echo "⚠️  No devcontainer setup found. Performing basic setup..."
-    
-    # Install uv if not present
-    if ! command -v uv &> /dev/null; then
-        echo "📦 Installing uv package manager..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        source ~/.cargo/env
-    fi
-    
-    # Install dependencies
-    echo "🐍 Installing Python dependencies..."
-    uv sync
-    
-    # Run migrations if database is available
-    if [ ! -z "$DATABASE_URL" ]; then
-        echo "🗃️  Running database migrations..."
-        uv run alembic upgrade head
-    else
-        echo "⚠️  No DATABASE_URL found. Skipping migrations."
-        echo "   Make sure your database is properly configured."
-    fi
-    
-    # Create .env if it doesn't exist
-    if [ ! -f .env ]; then
-        echo "📝 Creating .env file..."
-        cat > .env << EOF
-FLASK_APP=app
-FLASK_DEBUG=1
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/velodb
-SECRET_KEY=dev-secret-key-change-in-production
-EOF
-    fi
-fi
-
-echo
-echo "🔐 Step 2: Garmin Connect Authentication"
+echo "🔐 Step 1: Garmin Connect Authentication"
 echo "========================================"
 echo
 echo "You'll now be prompted for your Garmin Connect credentials."
@@ -81,7 +42,7 @@ if ! uv run python cli.py login; then
 fi
 
 echo
-echo "📊 Step 3: Syncing cycling activities"
+echo "📊 Step 2: Syncing cycling activities"
 echo "====================================="
 
 if [ "$SKIP_SYNC" = true ]; then
@@ -108,7 +69,7 @@ else
 fi
 
 echo
-echo "🎯 Step 4: Final setup"
+echo "🎯 Step 3: Final verification"
 echo "======================"
 
 # Test the Flask app can start

@@ -33,11 +33,10 @@ Run the bootstrap script for a fully configured environment with sample data:
 ```
 
 This will:
-1. ✅ Complete the development environment setup
-2. 🔐 Guide you through Garmin Connect authentication
-3. 📊 Sync 30 days of your cycling activities
-4. 🧪 Test the Flask application
-5. 📚 Provide usage instructions
+1. 🔐 Guide you through Garmin Connect authentication
+2. 📊 Sync 30 days of your cycling activities
+3. 🧪 Test the Flask application
+4. 📚 Provide usage instructions
 
 **This is the fastest way to get a working environment with real data!**
 
