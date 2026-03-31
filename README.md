@@ -14,7 +14,34 @@ A personal cycling dashboard that syncs rides from Garmin Connect. Built with Fl
 
 Flask · SQLModel · PostgreSQL · Alembic · [garminconnect](https://github.com/cyberjunky/python-garminconnect) · Gunicorn · [flask-fenrir](https://github.com/badlogic/flask-fenrir)
 
-## Setup
+## Quick Start
+
+### 🚀 One-Click Setup (GitHub Codespaces)
+
+The fastest way to get started is using GitHub Codespaces:
+
+1. Click **"Code" → "Codespaces" → "Create codespace"** on this repository
+2. Wait for the automatic setup to complete (~2-3 minutes)
+3. Run the bootstrap script: `./bootstrap.sh`
+4. Follow the prompts to authenticate with Garmin Connect
+5. Your environment will be ready with 30 days of cycling data!
+
+### 🛠️ Bootstrap Script (Local/Remote Development)
+
+For any environment, use the bootstrap script for complete setup:
+
+```bash
+./bootstrap.sh
+```
+
+This will:
+- Set up the development environment
+- Prompt for Garmin Connect authentication  
+- Sync 1 month of cycling activities
+- Test the Flask application
+- Provide next steps and usage instructions
+
+## Manual Setup
 
 ### Prerequisites
 
