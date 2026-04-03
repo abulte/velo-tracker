@@ -44,8 +44,20 @@
                     <p class="text-sm text-base-content/50 mt-1">{{ goal.notes }}</p>
                     {% endif %}
                 </div>
-                <div class="flex gap-2 shrink-0">
-                    {% if not goal.is_active %}
+                <div class="flex gap-2 shrink-0 flex-wrap">
+                    {% if goal.is_active %}
+                        {% set plan_id = active_plans.get(goal.id) %}
+                        {% if plan_id %}
+                        <a href="/plan/{{ plan_id }}" class="btn btn-sm btn-primary">View Plan</a>
+                        {% endif %}
+                        <form method="POST" action="/goals/{{ goal.id }}/generate-plan"
+                              id="gen-form-{{ goal.id }}"
+                              onsubmit="document.getElementById('gen-btn-{{ goal.id }}').classList.add('loading'); document.getElementById('gen-btn-{{ goal.id }}').disabled=true;">
+                            <button id="gen-btn-{{ goal.id }}" class="btn btn-sm {{ 'btn-outline' if plan_id else 'btn-secondary' }}">
+                                {{ 'Regenerate Plan' if plan_id else 'Generate Plan' }}
+                            </button>
+                        </form>
+                    {% else %}
                     <form method="POST" action="/goals/{{ goal.id }}/activate">
                         <button class="btn btn-sm btn-outline btn-primary">Set Active</button>
                     </form>

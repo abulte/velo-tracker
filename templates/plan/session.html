@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ session.title }} – Velo Tracker{% endblock %}
+
+{% block content %}
+{% set type_colors = {"endurance": "badge-info", "threshold": "badge-warning", "vo2max": "badge-error", "recovery": "badge-success", "long": "badge-neutral"} %}
+{% set phase_colors = {"base": "badge-info", "build": "badge-warning", "peak": "badge-error", "taper": "badge-success"} %}
+
+<div class="text-sm text-base-content/50 mb-4">
+    <a href="/goals" class="link link-hover">Goals</a> /
+    <a href="/plan/{{ plan.id }}" class="link link-hover">{{ goal.title }}</a> /
+    Week {{ week.week_number }}
+</div>
+
+<div class="max-w-xl">
+    <div class="flex items-center gap-2 flex-wrap mb-1">
+        <span class="badge {{ type_colors.get(session.session_type, 'badge-neutral') }}">{{ session.session_type }}</span>
+        <span class="badge badge-outline badge-sm {{ phase_colors.get(week.phase, 'badge-neutral') }}">{{ week.phase }}</span>
+        <span class="text-base-content/50 text-sm">{{ session.day_of_week | capitalize }} · Week {{ week.week_number }}</span>
+    </div>
+    <h1 class="text-2xl font-bold mb-1">{{ session.title }}</h1>
+    <p class="text-base-content/50 text-sm mb-6">{{ session.duration_min }} min · {{ session.tss_target }} TSS</p>
+
+    <div class="space-y-3">
+        <div class="card bg-base-100 shadow">
+            <div class="card-body p-4">
+                <h2 class="text-xs font-semibold text-base-content/40 uppercase tracking-wide mb-2">Warmup</h2>
+                <p>{{ session.warmup }}</p>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body p-4">
+                <h2 class="text-xs font-semibold text-base-content/40 uppercase tracking-wide mb-2">Main Set</h2>
+                <p>{{ session.main_set }}</p>
+            </div>
+        </div>
+        <div class="card bg-base-100 shadow">
+            <div class="card-body p-4">
+                <h2 class="text-xs font-semibold text-base-content/40 uppercase tracking-wide mb-2">Cooldown</h2>
+                <p>{{ session.cooldown }}</p>
+            </div>
+        </div>
+        {% if session.notes %}
+        <p class="text-sm text-base-content/50 italic px-1">{{ session.notes }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

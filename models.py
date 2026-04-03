@@ -32,6 +32,37 @@ class Goal(SQLModel, table=True):
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
+class TrainingPlan(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    goal_id: int = Field(foreign_key="goal.id", index=True)
+    generated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    summary: str
+    is_active: bool = False
+
+
+class TrainingWeek(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    plan_id: int = Field(foreign_key="trainingplan.id", index=True)
+    week_number: int  # 1-indexed
+    phase: str  # "base" | "build" | "peak" | "taper"
+    tss_target: int
+    description: str
+
+
+class TrainingSession(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    week_id: int = Field(foreign_key="trainingweek.id", index=True)
+    day_of_week: str  # "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
+    session_type: str  # "endurance" | "threshold" | "vo2max" | "recovery" | "long"
+    tss_target: int
+    duration_min: int
+    title: str
+    warmup: str
+    main_set: str
+    cooldown: str
+    notes: Optional[str] = None
+
+
 class Route(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str

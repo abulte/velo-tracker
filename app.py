@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 
 import click
@@ -8,6 +9,8 @@ from flask_fenrir import create_fenrir_bp, secure_app
 from sqlmodel import Session, create_engine, select
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
 
 app = Flask("velo-tracker")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
@@ -601,12 +604,16 @@ def update_availability_week(week_start_str: str):
 
 @app.route("/goals")
 def list_goals():
-    from models import Goal
+    from models import Goal, TrainingPlan
 
     with get_session() as session:
         goals = session.exec(select(Goal).order_by(Goal.created_at.desc())).all()
+        active_plans = {p.goal_id: p.id for p in session.exec(
+            select(TrainingPlan).where(TrainingPlan.is_active == True)  # noqa: E712
+        ).all()}
 
-    return render_template("goals/list.html", goals=goals, today_date=datetime.date.today())
+    return render_template("goals/list.html", goals=goals, today_date=datetime.date.today(),
+                           active_plans=active_plans)
 
 
 @app.route("/goals", methods=["POST"])
@@ -675,6 +682,141 @@ def delete_goal(goal_id: int):
     return redirect(url_for("list_goals"))
 
 
+@app.route("/goals/<int:goal_id>/generate-plan", methods=["POST"])
+def generate_plan(goal_id: int):
+    from models import Goal, UserProfile, AvailabilityWeek, TrainingPlan, TrainingWeek, TrainingSession
+    from coach import generate_plan as _generate_plan
+
+    with get_session() as session:
+        goal = session.get(Goal, goal_id)
+        if not goal:
+            return "Not found", 404
+        profile = session.get(UserProfile, 1)
+        if not profile or not profile.ftp:
+            return render_template("plan/_generate_error.html",
+                                   error="Set your FTP in Profile before generating a plan.")
+
+        # Load availability for the plan horizon
+        today = datetime.date.today()
+        monday = today - datetime.timedelta(days=today.weekday())
+        plan_weeks = min(max(1, (goal.target_date - today).days // 7), 20)
+        week_starts = [monday + datetime.timedelta(weeks=i) for i in range(plan_weeks)]
+        avail_weeks = session.exec(
+            select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
+        ).all()
+        avail_map = {w.week_start: w for w in avail_weeks}
+
+        # Current PMC values
+        activities = session.exec(select(Activity).order_by(Activity.start_date.desc())).all()
+        pmc = _compute_pmc(list(activities))
+        pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
+
+        # Call Claude
+        try:
+            plan_data = _generate_plan(goal, profile, pmc_current, avail_map)
+            app.logger.info("plan_data keys: %s, weeks: %d", list(plan_data.keys()), len(plan_data.get("weeks", [])))
+        except Exception as e:
+            app.logger.exception("generate_plan failed")
+            return render_template("plan/_generate_error.html", error=str(e))
+
+        # Deactivate existing plans for this goal
+        existing_plans = session.exec(
+            select(TrainingPlan).where(TrainingPlan.goal_id == goal_id)
+        ).all()
+        for p in existing_plans:
+            p.is_active = False
+            session.add(p)
+
+        # Store new plan
+        plan = TrainingPlan(goal_id=goal_id, summary=plan_data["summary"], is_active=True)
+        session.add(plan)
+        session.flush()
+
+        for week_data in plan_data["weeks"]:
+            week = TrainingWeek(
+                plan_id=plan.id,
+                week_number=week_data["week_number"],
+                phase=week_data["phase"],
+                tss_target=week_data["tss_target"],
+                description=week_data["description"],
+            )
+            session.add(week)
+            session.flush()
+            for s in week_data.get("sessions", []):
+                session.add(TrainingSession(
+                    week_id=week.id,
+                    day_of_week=s["day_of_week"],
+                    session_type=s["session_type"],
+                    tss_target=s["tss_target"],
+                    duration_min=s["duration_min"],
+                    title=s["title"],
+                    warmup=s["warmup"],
+                    main_set=s["main_set"],
+                    cooldown=s["cooldown"],
+                    notes=s.get("notes"),
+                ))
+
+        session.commit()
+        plan_id = plan.id
+
+    return redirect(url_for("show_plan", plan_id=plan_id))
+
+
+@app.route("/plan/<int:plan_id>")
+def show_plan(plan_id: int):
+    from models import TrainingPlan, TrainingWeek, TrainingSession, Goal
+
+    with get_session() as session:
+        plan = session.get(TrainingPlan, plan_id)
+        if not plan:
+            return "Not found", 404
+        goal = session.get(Goal, plan.goal_id)
+        weeks = session.exec(
+            select(TrainingWeek)
+            .where(TrainingWeek.plan_id == plan_id)
+            .order_by(TrainingWeek.week_number)
+        ).all()
+        # Pre-group sessions by week_id → day_of_week → [sessions]
+        sessions_by_week = {}
+        for week in weeks:
+            by_day = {d: [] for d in _DAYS}
+            for s in session.exec(
+                select(TrainingSession).where(TrainingSession.week_id == week.id)
+            ).all():
+                by_day[s.day_of_week].append(s)
+            sessions_by_week[week.id] = by_day
+
+    # Determine current week number in plan
+    today = datetime.date.today()
+    plan_start = plan.generated_at.date()
+    current_week_num = (today - plan_start).days // 7 + 1
+
+    return render_template(
+        "plan/show.html",
+        plan=plan,
+        goal=goal,
+        weeks=weeks,
+        sessions_by_week=sessions_by_week,
+        current_week_num=current_week_num,
+        days=_DAYS,
+    )
+
+
+@app.route("/plan/sessions/<int:session_id>")
+def show_session(session_id: int):
+    from models import TrainingSession, TrainingWeek, TrainingPlan, Goal
+
+    with get_session() as session:
+        s = session.get(TrainingSession, session_id)
+        if not s:
+            return "Not found", 404
+        week = session.get(TrainingWeek, s.week_id)
+        plan = session.get(TrainingPlan, week.plan_id)
+        goal = session.get(Goal, plan.goal_id)
+
+    return render_template("plan/session.html", session=s, week=week, plan=plan, goal=goal)
+
+
 @app.route("/health")
 def health():
     try:
@@ -686,4 +828,4 @@ def health():
 
 
 # Import models after engine is set up so Alembic can detect them
-from models import Activity, Route, UserProfile, Goal, AvailabilityWeek  # noqa: E402, F401
+from models import Activity, Route, UserProfile, Goal, AvailabilityWeek, TrainingPlan, TrainingWeek, TrainingSession  # noqa: E402, F401
