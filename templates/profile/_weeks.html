@@ -1,0 +1,28 @@
+{% if not weeks or weeks | select | list | length == 0 %}
+<div class="text-center py-10 text-base-content/40 border border-dashed border-base-300 rounded-lg">
+    <p class="mb-1">No weeks initialized yet</p>
+    <p class="text-sm">Use the buttons above to pre-fill the next 20 weeks with your A/B pattern</p>
+</div>
+{% else %}
+<div class="overflow-x-auto">
+<table class="table table-sm w-full">
+    <thead>
+        <tr>
+            <th>Week</th>
+            <th>Type</th>
+            {% for l in day_labels %}<th class="text-center">{{ l }}</th>{% endfor %}
+            <th class="text-center">Total</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for i in range(week_starts | length) %}
+        {% set ws = week_starts[i] %}
+        {% set w = weeks[i] %}
+        {% with week=w, week_start=ws %}
+        {% include "profile/_week_row.html" %}
+        {% endwith %}
+        {% endfor %}
+    </tbody>
+</table>
+</div>
+{% endif %}

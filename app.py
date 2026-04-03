@@ -496,6 +496,185 @@ def activity_gpx(garmin_id: str):
     )
 
 
+_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _upcoming_week_starts(n=20):
+    today = datetime.date.today()
+    monday = today - datetime.timedelta(days=today.weekday())
+    return [monday + datetime.timedelta(weeks=i) for i in range(n)]
+
+
+def _load_weeks(session, week_starts):
+    from models import AvailabilityWeek
+    existing = {w.week_start: w for w in session.exec(
+        select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
+    ).all()}
+    return [existing.get(ws) for ws in week_starts]
+
+
+@app.route("/profile", methods=["GET", "POST"])
+def profile():
+    from models import UserProfile
+
+    with get_session() as session:
+        p = session.get(UserProfile, 1)
+
+        if request.method == "POST":
+            ftp = request.form.get("ftp", type=int)
+            week_a = {d: request.form.get(f"a_{d}", type=float) or 0.0 for d in _DAYS}
+            week_b = {d: request.form.get(f"b_{d}", type=float) or 0.0 for d in _DAYS}
+            if p is None:
+                p = UserProfile(id=1, ftp=ftp, week_a=week_a, week_b=week_b)
+            else:
+                p.ftp = ftp
+                p.week_a = week_a
+                p.week_b = week_b
+                p.updated_at = datetime.datetime.utcnow()
+            session.add(p)
+            session.commit()
+            return redirect(url_for("profile"))
+
+        week_starts = _upcoming_week_starts()
+        weeks = _load_weeks(session, week_starts)
+
+    return render_template("profile.html", profile=p,
+                           days=_DAYS, day_labels=_DAY_LABELS,
+                           weeks=weeks, week_starts=week_starts,
+                           today=datetime.date.today(),
+                           timedelta=datetime.timedelta)
+
+
+@app.route("/profile/weeks/init", methods=["POST"])
+def init_availability_weeks():
+    from models import UserProfile, AvailabilityWeek
+
+    start_type = request.form.get("start_type", "a")
+    week_starts = _upcoming_week_starts()
+
+    with get_session() as session:
+        existing = {w.week_start: w for w in session.exec(
+            select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
+        ).all()}
+        for i, ws in enumerate(week_starts):
+            if ws not in existing:
+                week_type = "a" if (i % 2 == 0) == (start_type == "a") else "b"
+                session.add(AvailabilityWeek(week_start=ws, week_type=week_type))
+        session.commit()
+        weeks = _load_weeks(session, week_starts)
+        p = session.get(UserProfile, 1)
+
+    return render_template("profile/_weeks.html", profile=p,
+                           days=_DAYS, day_labels=_DAY_LABELS,
+                           weeks=weeks, week_starts=week_starts,
+                           today=datetime.date.today(),
+                           timedelta=datetime.timedelta)
+
+
+@app.route("/profile/weeks/<string:week_start_str>", methods=["POST"])
+def update_availability_week(week_start_str: str):
+    from models import UserProfile, AvailabilityWeek
+
+    week_start = datetime.date.fromisoformat(week_start_str)
+    week_type = request.form.get("week_type", "a")
+
+    with get_session() as session:
+        w = session.exec(
+            select(AvailabilityWeek).where(AvailabilityWeek.week_start == week_start)
+        ).first()
+        if w is None:
+            w = AvailabilityWeek(week_start=week_start, week_type=week_type)
+        else:
+            w.week_type = week_type
+        w.hours = {d: request.form.get(f"h_{d}", type=float) or 0.0 for d in _DAYS} if week_type == "custom" else None
+        session.add(w)
+        session.commit()
+        session.refresh(w)
+        p = session.get(UserProfile, 1)
+
+    return render_template("profile/_week_row.html", week=w, week_start=week_start,
+                           profile=p, days=_DAYS, day_labels=_DAY_LABELS,
+                           today=datetime.date.today(),
+                           timedelta=datetime.timedelta)
+
+
+@app.route("/goals")
+def list_goals():
+    from models import Goal
+
+    with get_session() as session:
+        goals = session.exec(select(Goal).order_by(Goal.created_at.desc())).all()
+
+    return render_template("goals/list.html", goals=goals, today_date=datetime.date.today())
+
+
+@app.route("/goals", methods=["POST"])
+def create_goal():
+    from models import Goal
+
+    title = request.form.get("title", "").strip()
+    goal_type = request.form.get("goal_type", "race")
+    target_date_str = request.form.get("target_date", "")
+    target_ftp = request.form.get("target_ftp", type=int)
+    notes = request.form.get("notes", "").strip() or None
+
+    if not title or not target_date_str:
+        return "Title and target date are required", 400
+
+    target_date = datetime.date.fromisoformat(target_date_str)
+
+    with get_session() as session:
+        goal = Goal(
+            title=title,
+            goal_type=goal_type,
+            target_date=target_date,
+            target_ftp=target_ftp if goal_type == "ftp" else None,
+            notes=notes,
+            is_active=False,
+        )
+        session.add(goal)
+        session.commit()
+        session.refresh(goal)
+        goal_id = goal.id
+
+    return redirect(url_for("list_goals"))
+
+
+@app.route("/goals/<int:goal_id>/activate", methods=["POST"])
+def activate_goal(goal_id: int):
+    from models import Goal
+
+    with get_session() as session:
+        # Deactivate all goals first
+        all_goals = session.exec(select(Goal)).all()
+        for g in all_goals:
+            g.is_active = False
+            session.add(g)
+        # Activate the selected one
+        goal = session.get(Goal, goal_id)
+        if not goal:
+            return "Not found", 404
+        goal.is_active = True
+        session.add(goal)
+        session.commit()
+
+    return redirect(url_for("list_goals"))
+
+
+@app.route("/goals/<int:goal_id>/delete", methods=["POST"])
+def delete_goal(goal_id: int):
+    from models import Goal
+
+    with get_session() as session:
+        goal = session.get(Goal, goal_id)
+        if goal:
+            session.delete(goal)
+            session.commit()
+
+    return redirect(url_for("list_goals"))
+
+
 @app.route("/health")
 def health():
     try:
@@ -507,4 +686,4 @@ def health():
 
 
 # Import models after engine is set up so Alembic can detect them
-from models import Activity, Route  # noqa: E402, F401
+from models import Activity, Route, UserProfile, Goal, AvailabilityWeek  # noqa: E402, F401

@@ -13,6 +13,7 @@ dependencies = [
     "flask-fenrir>=0.4.0",
     "garminconnect>=0.2.38",
     "geohash2",
+    "anthropic",
 ]
 
 [project.optional-dependencies]

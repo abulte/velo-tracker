@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Profile – Velo Tracker{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Rider Profile</h1>
+
+<form method="POST" action="/profile" class="space-y-6 mb-10">
+    <div class="card bg-base-100 shadow p-6 space-y-4">
+        <h2 class="text-lg font-semibold">Power</h2>
+        <div class="form-control">
+            <label class="label"><span class="label-text">FTP (watts)</span></label>
+            <input type="number" name="ftp" value="{{ profile.ftp if profile else '' }}"
+                   min="50" max="600" placeholder="e.g. 250"
+                   class="input input-bordered w-full max-w-xs">
+            <label class="label">
+                <span class="label-text-alt text-base-content/50">Functional Threshold Power — used to set training zones and TSS targets</span>
+            </label>
+        </div>
+    </div>
+
+    <div class="card bg-base-100 shadow p-6 space-y-4">
+        <h2 class="text-lg font-semibold">Availability Templates</h2>
+        <p class="text-sm text-base-content/60">Define two weekly patterns (A and B) that alternate with your custody schedule. Hours available per day.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-2">
+            {% for prefix, label, data in [("a", "Week A", profile.week_a if profile else None), ("b", "Week B", profile.week_b if profile else None)] %}
+            {% set tmpl_total = (data or {}).values() | sum %}
+            <div>
+                <h3 class="font-medium mb-3 flex items-center gap-2">
+                    <span class="badge badge-outline">{{ label }}</span>
+                    <span class="text-sm text-base-content/50" id="total-{{ prefix }}">{{ tmpl_total | int if tmpl_total == (tmpl_total | int) else tmpl_total }}h / week</span>
+                </h3>
+                <div class="space-y-2" data-total-target="total-{{ prefix }}">
+                    {% for d in days %}
+                    {% set current = (data or {}).get(d, 0) %}
+                    <div class="flex items-center gap-3">
+                        <span class="text-sm w-8 text-base-content/60">{{ day_labels[loop.index0] }}</span>
+                        <input type="range" name="{{ prefix }}_{{ d }}" min="0" max="7" step="0.5"
+                               value="{{ current }}"
+                               class="range range-xs flex-1"
+                               oninput="this.nextElementSibling.textContent = +this.value === 0 ? 'rest' : this.value + 'h'; syncTotal(this)">
+                        <span class="text-sm w-10 text-right text-base-content/70">{{ 'rest' if current == 0 else current|string + 'h' }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save Profile</button>
+    {% if profile and profile.updated_at %}
+    <span class="text-xs text-base-content/40 ml-2">Last saved {{ profile.updated_at.strftime('%Y-%m-%d %H:%M') }}</span>
+    {% endif %}
+</form>
+
+<div class="mb-4 flex items-center justify-between">
+    <h2 class="text-xl font-semibold">Availability Calendar</h2>
+    <div class="flex items-center gap-2">
+        <span class="text-sm text-base-content/50">Start with</span>
+        <form hx-post="/profile/weeks/init" hx-target="#weeks-calendar" hx-swap="innerHTML" class="flex gap-2">
+            <input type="hidden" name="start_type" value="a">
+            <button class="btn btn-sm btn-outline">Week A first</button>
+        </form>
+        <form hx-post="/profile/weeks/init" hx-target="#weeks-calendar" hx-swap="innerHTML" class="flex gap-2">
+            <input type="hidden" name="start_type" value="b">
+            <button class="btn btn-sm btn-outline">Week B first</button>
+        </form>
+    </div>
+</div>
+
+<div id="weeks-calendar">
+    {% include "profile/_weeks.html" %}
+</div>
+
+<script>
+function syncTotal(el) {
+    const container = el.closest('[data-total-target]');
+    if (!container) return;
+    const sliders = container.querySelectorAll('input[type=range]');
+    let total = 0;
+    sliders.forEach(s => total += parseFloat(s.value) || 0);
+    const display = total % 1 === 0 ? total + 'h / week' : total.toFixed(1) + 'h / week';
+    const target = document.getElementById(container.dataset.totalTarget);
+    if (target) target.textContent = display;
+}
+</script>
+{% endblock %}

@@ -4,6 +4,34 @@ from sqlalchemy import Column, JSON
 from sqlmodel import Field, SQLModel
 
 
+class UserProfile(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ftp: Optional[int] = None  # watts
+    # per-day hours templates: {"mon": 0, "tue": 1.5, "wed": 0, "thu": 1.5, "fri": 0, "sat": 4, "sun": 2.5}
+    week_a: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    week_b: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
+class AvailabilityWeek(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    week_start: datetime.date = Field(unique=True, index=True)  # always Monday
+    week_type: str  # "a" | "b" | "custom"
+    # per-day hours, only used when week_type == "custom"
+    hours: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+
+
+class Goal(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    goal_type: str  # "race" | "ftp" | "endurance"
+    target_date: datetime.date
+    target_ftp: Optional[int] = None  # watts, used when goal_type == "ftp"
+    notes: Optional[str] = None
+    is_active: bool = False
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+
+
 class Route(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str

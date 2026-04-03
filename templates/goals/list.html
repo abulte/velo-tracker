@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Goals – Velo Tracker{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+    <h1 class="text-2xl font-bold">Training Goals</h1>
+    <label for="new-goal-modal" class="btn btn-primary btn-sm">+ New Goal</label>
+</div>
+
+{% if goals %}
+<div class="space-y-3 mb-8">
+    {% for goal in goals %}
+    <div class="card bg-base-100 shadow {{ 'border-2 border-primary' if goal.is_active else '' }}">
+        <div class="card-body p-4">
+            <div class="flex items-start justify-between gap-4">
+                <div class="flex-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h2 class="font-semibold text-lg">{{ goal.title }}</h2>
+                        {% if goal.is_active %}
+                        <span class="badge badge-primary badge-sm">Active</span>
+                        {% endif %}
+                        <span class="badge badge-outline badge-sm">
+                            {% if goal.goal_type == 'race' %}Race
+                            {% elif goal.goal_type == 'ftp' %}FTP Build
+                            {% else %}Endurance
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="text-sm text-base-content/60 mt-1 flex items-center gap-3 flex-wrap">
+                        <span>Target: <strong>{{ goal.target_date.strftime('%d %b %Y') }}</strong></span>
+                        {% set days_left = (goal.target_date - today_date).days %}
+                        {% if days_left > 0 %}
+                        <span class="text-base-content/40">{{ days_left }} days away</span>
+                        {% elif days_left == 0 %}
+                        <span class="text-warning">Today!</span>
+                        {% else %}
+                        <span class="text-base-content/30">Past</span>
+                        {% endif %}
+                        {% if goal.target_ftp %}
+                        <span>Target FTP: <strong>{{ goal.target_ftp }}W</strong></span>
+                        {% endif %}
+                    </div>
+                    {% if goal.notes %}
+                    <p class="text-sm text-base-content/50 mt-1">{{ goal.notes }}</p>
+                    {% endif %}
+                </div>
+                <div class="flex gap-2 shrink-0">
+                    {% if not goal.is_active %}
+                    <form method="POST" action="/goals/{{ goal.id }}/activate">
+                        <button class="btn btn-sm btn-outline btn-primary">Set Active</button>
+                    </form>
+                    {% endif %}
+                    <form method="POST" action="/goals/{{ goal.id }}/delete"
+                          onsubmit="return confirm('Delete this goal?')">
+                        <button class="btn btn-sm btn-ghost text-error">Delete</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-16 text-base-content/40">
+    <p class="text-lg mb-2">No goals yet</p>
+    <p class="text-sm">Set a race date or training target to get started</p>
+</div>
+{% endif %}
+
+<!-- New Goal Modal -->
+<input type="checkbox" id="new-goal-modal" class="modal-toggle">
+<div class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg mb-4">New Training Goal</h3>
+        <form method="POST" action="/goals" class="space-y-4">
+
+            <div class="form-control">
+                <label class="label"><span class="label-text">Goal title</span></label>
+                <input type="text" name="title" required placeholder="e.g. Gran Fondo Alps, Build FTP to 280W"
+                       class="input input-bordered w-full">
+            </div>
+
+            <div class="form-control">
+                <label class="label"><span class="label-text">Goal type</span></label>
+                <select name="goal_type" id="goal-type-select" class="select select-bordered w-full"
+                        onchange="document.getElementById('ftp-target-row').classList.toggle('hidden', this.value !== 'ftp')">
+                    <option value="race">Race / Event</option>
+                    <option value="ftp">Build FTP</option>
+                    <option value="endurance">Build Endurance</option>
+                </select>
+            </div>
+
+            <div class="form-control" id="ftp-target-row" style="display:none">
+                <label class="label"><span class="label-text">Target FTP (watts)</span></label>
+                <input type="number" name="target_ftp" min="50" max="600" placeholder="e.g. 280"
+                       class="input input-bordered w-full max-w-xs">
+            </div>
+
+            <div class="form-control">
+                <label class="label"><span class="label-text">Target date</span></label>
+                <input type="date" name="target_date" required class="input input-bordered w-full max-w-xs">
+            </div>
+
+            <div class="form-control">
+                <label class="label"><span class="label-text">Notes <span class="text-base-content/40">(optional)</span></span></label>
+                <textarea name="notes" rows="2" placeholder="Any additional context…"
+                          class="textarea textarea-bordered w-full"></textarea>
+            </div>
+
+            <div class="modal-action mt-2">
+                <label for="new-goal-modal" class="btn btn-ghost">Cancel</label>
+                <button type="submit" class="btn btn-primary">Create Goal</button>
+            </div>
+        </form>
+    </div>
+    <label class="modal-backdrop" for="new-goal-modal"></label>
+</div>
+
+<script>
+// Fix the hidden/show toggle — use class instead of inline style
+const sel = document.getElementById('goal-type-select');
+const ftpRow = document.getElementById('ftp-target-row');
+if (sel && ftpRow) {
+    ftpRow.style.display = 'none';
+    sel.addEventListener('change', () => {
+        ftpRow.style.display = sel.value === 'ftp' ? '' : 'none';
+    });
+}
+</script>
+{% endblock %}
