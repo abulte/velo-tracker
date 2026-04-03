@@ -3,6 +3,8 @@
 import geohash2
 from sqlmodel import Session, select
 
+from models import Activity, Route
+
 GEOHASH_PRECISION = 6  # ~600m × 600m cells
 SIMILARITY_THRESHOLD = 0.7
 
@@ -23,8 +25,6 @@ def similarity(poly_a: list, poly_b: list) -> float:
 
 def match_activity_to_routes(session: Session, activity) -> "object | None":
     """Return the best-matching Route for `activity`, or None."""
-    from models import Activity, Route
-
     if not activity.polyline:
         return None
 
@@ -53,8 +53,6 @@ def match_activity_to_routes(session: Session, activity) -> "object | None":
 
 def assign_route_to_all(session: Session, route) -> int:
     """Assign `route` to all activities whose polyline matches its reference. Returns count."""
-    from models import Activity
-
     ref = session.exec(
         select(Activity).where(Activity.garmin_id == route.reference_activity_id)
     ).first()

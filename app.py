@@ -1,12 +1,20 @@
 import datetime
 import logging
+import math
 import os
 
 import click
 from dotenv import load_dotenv
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, Response, jsonify, render_template, redirect, url_for, request
 from flask_fenrir import create_fenrir_bp, secure_app
+from sqlalchemy import func
 from sqlmodel import Session, create_engine, select
+
+from cli import sync_activities
+from climbs import detect_climbs
+from coach import generate_plan as _generate_plan, generate_session_steps
+from models import Activity, Route, UserProfile, Goal, AvailabilityWeek, TrainingPlan, TrainingWeek, TrainingSession
+from routes import assign_route_to_all
 
 load_dotenv()
 
@@ -38,8 +46,6 @@ def get_session():
 @click.option("--since", default=None, help="Start date YYYY-MM-DD (default: 1 year ago)")
 def cli_sync(since: str):
     """Sync cycling activities from Garmin Connect."""
-    from cli import sync_activities
-
     cutoff = (
         datetime.date.fromisoformat(since)
         if since
@@ -91,8 +97,6 @@ def index():
 
 def _compute_pmc(activities):
     """Compute daily CTL, ATL, TSB (Performance Management Chart)."""
-    import math
-
     if not activities:
         return []
 
@@ -165,8 +169,6 @@ def dashboard():
 
 @app.route("/activities")
 def list_activities():
-    from models import Route
-
     dist_min = request.args.get("dist_min", type=float)
     dist_max = request.args.get("dist_max", type=float)
     dur_min = request.args.get("dur_min", type=int)   # minutes
@@ -213,8 +215,6 @@ def list_activities():
 
 @app.route("/activities/sync", methods=["POST"])
 def sync_activities_route():
-    from cli import sync_activities
-
     oldest = request.form.get("since") or (
         datetime.date.today() - datetime.timedelta(days=7)
     ).isoformat()
@@ -226,8 +226,6 @@ def sync_activities_route():
 
 @app.route("/activities/<string:garmin_id>")
 def show_activity(garmin_id: str):
-    from climbs import detect_climbs
-
     with get_session() as session:
         activity = session.exec(
             select(Activity).where(Activity.garmin_id == garmin_id)
@@ -240,8 +238,6 @@ def show_activity(garmin_id: str):
 
 @app.route("/activities/<string:garmin_id>/streams")
 def activity_streams(garmin_id: str):
-    from flask import jsonify
-
     with get_session() as session:
         activity = session.exec(
             select(Activity).where(Activity.garmin_id == garmin_id)
@@ -269,8 +265,6 @@ def save_notes(garmin_id: str):
 
 @app.route("/heatmap/data")
 def heatmap_data():
-    from flask import jsonify
-
     try:
         with get_session() as session:
             activities = session.exec(
@@ -311,9 +305,6 @@ def heatmap_data():
 
 @app.route("/routes")
 def list_routes():
-    from models import Route
-    from sqlalchemy import func
-
     with get_session() as session:
         routes = session.exec(select(Route).order_by(Route.name)).all()
         counts = dict(
@@ -342,9 +333,6 @@ def list_routes():
 
 @app.route("/routes", methods=["POST"])
 def create_route():
-    from models import Route
-    from routes import assign_route_to_all
-
     name = request.form.get("name", "").strip()
     garmin_id = request.form.get("garmin_id", "").strip()
     if not name or not garmin_id:
@@ -374,8 +362,6 @@ def create_route():
 
 @app.route("/routes/<int:route_id>")
 def show_route(route_id: int):
-    from models import Route
-
     with get_session() as session:
         route = session.get(Route, route_id)
         if not route:
@@ -410,8 +396,6 @@ def show_route(route_id: int):
 
 @app.route("/routes/<int:route_id>/edit", methods=["POST"])
 def edit_route(route_id: int):
-    from models import Route
-
     name = request.form.get("name", "").strip()
     if not name:
         return "Name required", 400
@@ -437,7 +421,6 @@ def delete_route(route_id: int):
             a.route_id = None
         session.commit()
 
-        from models import Route
         route = session.get(Route, route_id)
         if route:
             session.delete(route)
@@ -448,8 +431,6 @@ def delete_route(route_id: int):
 
 @app.route("/routes/<int:route_id>/course", methods=["POST"])
 def save_course_url(route_id: int):
-    from models import Route
-
     with get_session() as session:
         route = session.get(Route, route_id)
         if not route:
@@ -464,8 +445,6 @@ def save_course_url(route_id: int):
 
 @app.route("/activities/<string:garmin_id>/gpx")
 def activity_gpx(garmin_id: str):
-    from flask import Response
-
     with get_session() as session:
         activity = session.exec(
             select(Activity).where(Activity.garmin_id == garmin_id)
@@ -510,7 +489,6 @@ def _upcoming_week_starts(n=20):
 
 
 def _load_weeks(session, week_starts):
-    from models import AvailabilityWeek
     existing = {w.week_start: w for w in session.exec(
         select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
     ).all()}
@@ -519,8 +497,6 @@ def _load_weeks(session, week_starts):
 
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
-    from models import UserProfile
-
     with get_session() as session:
         p = session.get(UserProfile, 1)
 
@@ -551,8 +527,6 @@ def profile():
 
 @app.route("/profile/weeks/init", methods=["POST"])
 def init_availability_weeks():
-    from models import UserProfile, AvailabilityWeek
-
     start_type = request.form.get("start_type", "a")
     week_starts = _upcoming_week_starts()
 
@@ -577,8 +551,6 @@ def init_availability_weeks():
 
 @app.route("/profile/weeks/<string:week_start_str>", methods=["POST"])
 def update_availability_week(week_start_str: str):
-    from models import UserProfile, AvailabilityWeek
-
     week_start = datetime.date.fromisoformat(week_start_str)
     week_type = request.form.get("week_type", "a")
 
@@ -604,8 +576,6 @@ def update_availability_week(week_start_str: str):
 
 @app.route("/goals")
 def list_goals():
-    from models import Goal, TrainingPlan
-
     with get_session() as session:
         goals = session.exec(select(Goal).order_by(Goal.created_at.desc())).all()
         active_plans = {p.goal_id: p.id for p in session.exec(
@@ -618,8 +588,6 @@ def list_goals():
 
 @app.route("/goals", methods=["POST"])
 def create_goal():
-    from models import Goal
-
     title = request.form.get("title", "").strip()
     goal_type = request.form.get("goal_type", "race")
     target_date_str = request.form.get("target_date", "")
@@ -650,8 +618,6 @@ def create_goal():
 
 @app.route("/goals/<int:goal_id>/activate", methods=["POST"])
 def activate_goal(goal_id: int):
-    from models import Goal
-
     with get_session() as session:
         # Deactivate all goals first
         all_goals = session.exec(select(Goal)).all()
@@ -671,8 +637,6 @@ def activate_goal(goal_id: int):
 
 @app.route("/goals/<int:goal_id>/delete", methods=["POST"])
 def delete_goal(goal_id: int):
-    from models import Goal
-
     with get_session() as session:
         goal = session.get(Goal, goal_id)
         if goal:
@@ -684,9 +648,6 @@ def delete_goal(goal_id: int):
 
 @app.route("/goals/<int:goal_id>/generate-plan", methods=["POST"])
 def generate_plan(goal_id: int):
-    from models import Goal, UserProfile, AvailabilityWeek, TrainingPlan, TrainingWeek, TrainingSession
-    from coach import generate_plan as _generate_plan
-
     with get_session() as session:
         goal = session.get(Goal, goal_id)
         if not goal:
@@ -728,7 +689,12 @@ def generate_plan(goal_id: int):
             session.add(p)
 
         # Store new plan
-        plan = TrainingPlan(goal_id=goal_id, summary=plan_data["summary"], is_active=True)
+        plan = TrainingPlan(
+            goal_id=goal_id,
+            summary=plan_data["summary"],
+            rationale=plan_data.get("rationale"),
+            is_active=True,
+        )
         session.add(plan)
         session.flush()
 
@@ -750,9 +716,6 @@ def generate_plan(goal_id: int):
                     tss_target=s["tss_target"],
                     duration_min=s["duration_min"],
                     title=s["title"],
-                    warmup=s["warmup"],
-                    main_set=s["main_set"],
-                    cooldown=s["cooldown"],
                     notes=s.get("notes"),
                 ))
 
@@ -764,8 +727,6 @@ def generate_plan(goal_id: int):
 
 @app.route("/plan/<int:plan_id>")
 def show_plan(plan_id: int):
-    from models import TrainingPlan, TrainingWeek, TrainingSession, Goal
-
     with get_session() as session:
         plan = session.get(TrainingPlan, plan_id)
         if not plan:
@@ -804,8 +765,6 @@ def show_plan(plan_id: int):
 
 @app.route("/plan/sessions/<int:session_id>")
 def show_session(session_id: int):
-    from models import TrainingSession, TrainingWeek, TrainingPlan, Goal
-
     with get_session() as session:
         s = session.get(TrainingSession, session_id)
         if not s:
@@ -814,7 +773,28 @@ def show_session(session_id: int):
         plan = session.get(TrainingPlan, week.plan_id)
         goal = session.get(Goal, plan.goal_id)
 
-    return render_template("plan/session.html", session=s, week=week, plan=plan, goal=goal)
+    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal)
+
+
+@app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])
+def regenerate_session_steps(session_id: int):
+    with get_session() as session:
+        s = session.get(TrainingSession, session_id)
+        if not s:
+            return "Not found", 404
+        week = session.get(TrainingWeek, s.week_id)
+        plan = session.get(TrainingPlan, week.plan_id)
+        siblings = session.exec(
+            select(TrainingSession).where(
+                TrainingSession.week_id == s.week_id,
+                TrainingSession.id != s.id,
+            )
+        ).all()
+        s.steps = generate_session_steps(s, week, plan, siblings=siblings)
+        session.add(s)
+        session.commit()
+
+    return redirect(url_for("show_session", session_id=session_id))
 
 
 @app.route("/health")
@@ -827,5 +807,3 @@ def health():
         return {"status": "unhealthy", "error": str(e)}, 500
 
 
-# Import models after engine is set up so Alembic can detect them
-from models import Activity, Route, UserProfile, Goal, AvailabilityWeek, TrainingPlan, TrainingWeek, TrainingSession  # noqa: E402, F401

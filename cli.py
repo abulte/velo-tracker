@@ -4,13 +4,19 @@
 import base64
 import datetime
 import json
+import os
 import sys
 from getpass import getpass
 from pathlib import Path
 
 import click
 from dotenv import load_dotenv
+from garminconnect import Garmin, GarminConnectAuthenticationError
 from sqlmodel import Session, create_engine, select
+
+from garmin import get_client
+from models import Activity, Route
+from routes import assign_route_to_all, match_activity_to_routes
 
 load_dotenv()
 
@@ -22,8 +28,6 @@ TOKEN_DIR = Path(__file__).parent / "garmin_tokens"
 # ---------------------------------------------------------------------------
 
 def _engine():
-    import os
-
     url = os.getenv("DATABASE_URL", "")
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql://", 1)
@@ -102,9 +106,6 @@ def _map_activity(item: dict, detail_summary: dict | None = None) -> dict:
 
 def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
     """Fetch activities from Garmin Connect since `since` and upsert into DB."""
-    from garmin import get_client
-    from models import Activity
-
     client = get_client()
 
     # Garmin uses start/limit pagination, not date filters on the list endpoint.
@@ -169,7 +170,6 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             session.add(activity)
 
             if activity.polyline:
-                from routes import match_activity_to_routes
                 matched = match_activity_to_routes(session, activity)
                 if matched:
                     activity.route_id = matched.id
@@ -201,8 +201,6 @@ def cli():
 @cli.command()
 def login():
     """Authenticate with Garmin Connect and store tokens."""
-    from garminconnect import Garmin, GarminConnectAuthenticationError
-
     email = input("Garmin Connect email: ").strip()
     password = getpass("Garmin Connect password: ")
 
@@ -251,9 +249,6 @@ def login():
 @click.option("--route-id", default=None, type=int, help="Recompute a single route (default: all routes)")
 def assign_routes(route_id: int | None):
     """Recompute route assignments for all activities."""
-    from models import Activity, Route
-    from routes import assign_route_to_all
-
     engine = _engine()
     with Session(engine) as session:
         if route_id is not None:
@@ -302,9 +297,6 @@ def sync(since: str | None):
 @click.option("--garmin-id", default=None, help="Backfill a single activity by Garmin ID")
 def enrich_elevation(garmin_id: str | None):
     """Backfill elevation data for existing activities."""
-    from garmin import get_client
-    from models import Activity
-
     engine = _engine()
     client = get_client()
 

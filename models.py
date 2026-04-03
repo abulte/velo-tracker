@@ -37,6 +37,7 @@ class TrainingPlan(SQLModel, table=True):
     goal_id: int = Field(foreign_key="goal.id", index=True)
     generated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
     summary: str
+    rationale: Optional[str] = None  # full coaching analysis from turn 1
     is_active: bool = False
 
 
@@ -57,10 +58,10 @@ class TrainingSession(SQLModel, table=True):
     tss_target: int
     duration_min: int
     title: str
-    warmup: str
-    main_set: str
-    cooldown: str
     notes: Optional[str] = None
+    # Structured workout steps — generated on demand when session detail is first viewed.
+    # Each step: {type, duration_sec, power_low, power_high, repeat?, cadence?, description?}
+    steps: Optional[list] = Field(default=None, sa_column=Column(JSON))
 
 
 class Route(SQLModel, table=True):

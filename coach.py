@@ -9,15 +9,19 @@ log = logging.getLogger(__name__)
 
 _DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
-_PLAN_TOOL = {
-    "name": "create_training_plan",
-    "description": "Create a structured periodized cycling training plan.",
+# ---------------------------------------------------------------------------
+# Tool schemas
+# ---------------------------------------------------------------------------
+
+_SKELETON_TOOL = {
+    "name": "create_plan_skeleton",
+    "description": "Create the structured skeleton of a periodized cycling training plan.",
     "input_schema": {
         "type": "object",
         "properties": {
             "summary": {
                 "type": "string",
-                "description": "2-3 sentence overview of the plan strategy and key phases.",
+                "description": "2-3 sentence overview of the plan strategy.",
             },
             "weeks": {
                 "type": "array",
@@ -25,15 +29,9 @@ _PLAN_TOOL = {
                     "type": "object",
                     "properties": {
                         "week_number": {"type": "integer"},
-                        "phase": {
-                            "type": "string",
-                            "enum": ["base", "build", "peak", "taper"],
-                        },
+                        "phase": {"type": "string", "enum": ["base", "build", "peak", "taper"]},
                         "tss_target": {"type": "integer"},
-                        "description": {
-                            "type": "string",
-                            "description": "One sentence describing the training focus for this week.",
-                        },
+                        "description": {"type": "string"},
                         "sessions": {
                             "type": "array",
                             "items": {
@@ -50,15 +48,9 @@ _PLAN_TOOL = {
                                     "tss_target": {"type": "integer"},
                                     "duration_min": {"type": "integer"},
                                     "title": {"type": "string"},
-                                    "warmup": {"type": "string"},
-                                    "main_set": {"type": "string"},
-                                    "cooldown": {"type": "string"},
                                     "notes": {"type": "string"},
                                 },
-                                "required": [
-                                    "day_of_week", "session_type", "tss_target",
-                                    "duration_min", "title", "warmup", "main_set", "cooldown",
-                                ],
+                                "required": ["day_of_week", "session_type", "tss_target", "duration_min", "title"],
                             },
                         },
                     },
@@ -70,6 +62,39 @@ _PLAN_TOOL = {
     },
 }
 
+_STEPS_TOOL = {
+    "name": "create_session_steps",
+    "description": "Create structured workout steps for a single training session.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": ["warmup", "interval", "recovery", "cooldown", "steady"],
+                        },
+                        "duration_sec": {"type": "integer"},
+                        "power_low":  {"type": "number", "description": "% of FTP, e.g. 0.95"},
+                        "power_high": {"type": "number", "description": "% of FTP, e.g. 1.05"},
+                        "cadence":    {"type": "integer", "description": "Target RPM (optional)"},
+                        "repeat":     {"type": "integer", "description": "Repetitions of this step (default 1)"},
+                        "description": {"type": "string", "description": "Brief cue for this step"},
+                    },
+                    "required": ["type", "duration_sec", "power_low", "power_high"],
+                },
+            },
+        },
+        "required": ["steps"],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _resolve_week_hours(week_start, avail_week, profile):
     """Return per-day hours dict for a given week, resolving A/B/custom."""
@@ -81,24 +106,39 @@ def _resolve_week_hours(week_start, avail_week, profile):
     return {d: tmpl.get(d, 0.0) for d in _DAYS}
 
 
-def generate_plan(goal, profile, pmc_current, avail_weeks_map):
-    """
-    Call Claude API to generate a training plan.
+def _stream(client, label: str, prompt: str, **kwargs):
+    """Log prompt, stream the call, print progress, return final message."""
+    print(f"--- {label} ---", flush=True)
+    print(prompt, flush=True)
+    print("---", flush=True)
+    messages = [{"role": "user", "content": prompt}]
+    with client.messages.stream(messages=messages, **kwargs) as stream:
+        chars = 0
+        for event in stream:
+            if event.type == "content_block_delta":
+                delta = event.delta
+                # text deltas (rationale turn)
+                if delta.type == "text_delta":
+                    print(delta.text, end="", flush=True)
+                # tool input deltas (skeleton / steps turns)
+                elif delta.type == "input_json_delta":
+                    prev = chars
+                    chars += len(delta.partial_json)
+                    if chars // 1000 > prev // 1000:
+                        print(f"  ...{chars} chars", flush=True)
+        if chars:
+            print(f"  done ({chars} chars total)", flush=True)
+        else:
+            print()  # newline after streamed text
+        return stream.get_final_message()
 
-    Args:
-        goal: Goal model instance
-        profile: UserProfile model instance
-        pmc_current: dict with keys ctl, atl, tsb (latest PMC values)
-        avail_weeks_map: dict of {week_start_date: AvailabilityWeek | None}
 
-    Returns:
-        dict with keys "summary" and "weeks" (Claude tool call input)
-    """
+def _build_context(goal, profile, pmc_current, avail_weeks_map):
+    """Build the shared athlete/goal context block used in both turns."""
     today = datetime.date.today()
     weeks_to_goal = max(1, (goal.target_date - today).days // 7)
     plan_weeks = min(weeks_to_goal, 20)
 
-    # Build per-week availability summary for the plan horizon
     monday = today - datetime.timedelta(days=today.weekday())
     avail_lines = []
     for i in range(plan_weeks):
@@ -108,75 +148,156 @@ def generate_plan(goal, profile, pmc_current, avail_weeks_map):
         total_h = sum(hours.values())
         avail_lines.append(
             f"  Week {i+1} ({ws.strftime('%-d %b')}): "
-            f"{total_h:.1f}h total — riding days: {', '.join(riding_days) if riding_days else 'none'}"
+            f"{total_h:.1f}h — {', '.join(riding_days) if riding_days else 'no riding'}"
         )
 
     goal_type_desc = {
         "race": f"prepare for a race/event on {goal.target_date.strftime('%d %b %Y')}",
-        "ftp": f"build FTP to {goal.target_ftp}W by {goal.target_date.strftime('%d %b %Y')}",
+        "ftp":  f"build FTP to {goal.target_ftp}W by {goal.target_date.strftime('%d %b %Y')}",
         "endurance": f"build endurance by {goal.target_date.strftime('%d %b %Y')}",
     }.get(goal.goal_type, goal.goal_type)
 
-    prompt = f"""You are an expert cycling coach. Generate a {plan_weeks}-week periodized training plan.
-
-ATHLETE PROFILE
-- Current FTP: {profile.ftp or 'unknown'}W
-- Current fitness (CTL): {pmc_current.get('ctl', 0):.1f}
-- Current fatigue (ATL): {pmc_current.get('atl', 0):.1f}
-- Current form (TSB): {pmc_current.get('tsb', 0):.1f}
+    context = f"""ATHLETE
+- FTP: {profile.ftp or 'unknown'}W
+- Fitness (CTL): {pmc_current.get('ctl', 0):.1f}  Fatigue (ATL): {pmc_current.get('atl', 0):.1f}  Form (TSB): {pmc_current.get('tsb', 0):.1f}
 
 GOAL
 - {goal.title}: {goal_type_desc}
-- Weeks to goal: {weeks_to_goal} (plan covers first {plan_weeks} weeks)
+- {plan_weeks} weeks to plan{f' (of {weeks_to_goal} total)' if weeks_to_goal > plan_weeks else ''}
 {f'- Notes: {goal.notes}' if goal.notes else ''}
 
-WEEKLY AVAILABILITY (hours and riding days per week)
+WEEKLY AVAILABILITY
 {chr(10).join(avail_lines)}
 
-GUIDELINES
-- Periodize as: base (aerobic foundation) → build (intensity) → peak (race-specific) → taper (2 weeks before goal)
-- TSS ramp rate: max +10% per week; include a recovery week (−30% TSS) every 3–4 weeks
-- Taper: last 2 weeks before goal, reduce volume 40–50% while keeping intensity
-- Only schedule sessions on days with available hours; match session duration to available time
-- Power zones (% FTP): Z1 <55%, Z2 55–75%, Z3 75–90%, Z4 90–105%, Z5 105–120%
-- TSS reference: 1h Z2 ≈ 50–60 TSS, 1h threshold ≈ 90–100 TSS, 1h VO2max ≈ 110–120 TSS
-- Warmup/main_set/cooldown should be concrete and actionable (specific durations and power targets)
+POWER ZONES (% FTP): Z1 <55%  Z2 55–75%  Z3 75–90%  Z4 90–105%  Z5 105–120%
+TSS REFERENCE: 1h Z2 ≈ 50–60 TSS · 1h threshold ≈ 90–100 TSS · 1h VO2max ≈ 110–120 TSS"""
 
-Call the create_training_plan tool with the complete plan."""
+    return context, plan_weeks
 
-    log.info("=== generate_plan prompt ===\n%s\n===========================", prompt)
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
+def generate_plan(goal, profile, pmc_current, avail_weeks_map):
+    """
+    Two-shot plan generation:
+      Turn 1 — coaching rationale (free-form analysis, streamed as text)
+      Turn 2 — structured skeleton via tool use
+
+    Returns dict: {"rationale": str, "summary": str, "weeks": [...]}
+    """
+    context, plan_weeks = _build_context(goal, profile, pmc_current, avail_weeks_map)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    with client.messages.stream(
-        model="claude-sonnet-4-6",
-        max_tokens=64000,
-        tools=[_PLAN_TOOL],
-        tool_choice={"type": "tool", "name": "create_training_plan"},
-        messages=[{"role": "user", "content": prompt}],
-    ) as stream:
-        print("streaming plan...", flush=True)
-        chars = 0
-        for event in stream:
-            if event.type == "content_block_delta" and event.delta.type == "input_json_delta":
-                prev = chars
-                chars += len(event.delta.partial_json)
-                if chars // 1000 > prev // 1000:
-                    print(f"  ...{chars} chars received", flush=True)
-        print(f"stream complete ({chars} chars total)", flush=True)
-        response = stream.get_final_message()
 
-    log.info("=== generate_plan response (stop_reason=%s) ===", response.stop_reason)
-    for block in response.content:
-        log.info("  block type=%s", block.type)
-        if block.type == "tool_use":
-            log.info("  tool input keys: %s", list(block.input.keys()))
-            log.info("  weeks count: %s", len(block.input.get("weeks", [])))
+    # --- Turn 1: rationale ---
+    rationale_prompt = f"""You are an expert cycling coach. Analyse this athlete and produce a detailed coaching rationale for their {plan_weeks}-week training plan.
+
+{context}
+
+Cover:
+1. Fitness assessment — what the CTL/ATL/TSB numbers tell you right now
+2. Periodization strategy — phase breakdown (base/build/peak/taper weeks) and why
+3. TSS progression — starting weekly TSS, ramp rate, when to insert recovery weeks
+4. Training priorities — which physiological systems to target and in what order
+5. How the alternating availability pattern shapes session placement
+6. Any risks or special considerations
+
+Be specific and quantitative. This rationale will directly drive the structured plan."""
+
+    log.info("=== Turn 1: rationale ===")
+    r1 = _stream(client, label="coaching rationale", prompt=rationale_prompt,
+                 model="claude-sonnet-4-6", max_tokens=4000)
+    rationale = next(b.text for b in r1.content if b.type == "text")
+    log.info("rationale (%d chars, stop=%s)", len(rationale), r1.stop_reason)
+
+    # --- Turn 2: skeleton ---
+    skeleton_prompt = f"""Based on your coaching rationale, create the structured training plan skeleton.
+
+{context}
+
+YOUR RATIONALE
+{rationale}
+
+Rules:
+- Only schedule sessions on days with available hours
+- Match session duration to the available hours for that day
+- No workout step detail — titles and types only (steps are generated separately per session)
+
+Call the create_plan_skeleton tool."""
+
+    log.info("=== Turn 2: skeleton ===")
+    r2 = _stream(client, label="plan skeleton", prompt=skeleton_prompt,
+                 model="claude-sonnet-4-6", max_tokens=32000,
+                 tools=[_SKELETON_TOOL],
+                 tool_choice={"type": "tool", "name": "create_plan_skeleton"})
+
+    if r2.stop_reason == "max_tokens":
+        raise ValueError("Skeleton response truncated. Try a shorter plan horizon.")
+
+    tool_use = next((b for b in r2.content if b.type == "tool_use"), None)
+    if tool_use is None:
+        raise ValueError(f"No tool call in skeleton response. stop_reason={r2.stop_reason}")
+
+    log.info("skeleton: %d weeks, stop=%s", len(tool_use.input.get("weeks", [])), r2.stop_reason)
+    return {"rationale": rationale, **tool_use.input}
+
+
+def generate_session_steps(session, week, plan, siblings=None):
+    """
+    Generate structured workout steps for a single session on demand.
+
+    `siblings` — other TrainingSession rows from the same week, for context.
+
+    Returns list of step dicts.
+    """
+    _days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    if siblings:
+        all_sessions = sorted(list(siblings) + [session], key=lambda s: _days.index(s.day_of_week))
+        week_lines = [
+            f"  {s.day_of_week.capitalize()}: {s.session_type}, "
+            f"{s.duration_min}min, {s.tss_target} TSS — {s.title}"
+            + (" ← THIS SESSION" if s.id == session.id else "")
+            for s in all_sessions
+        ]
+        sibling_block = "OTHER SESSIONS THIS WEEK\n" + "\n".join(week_lines)
+    else:
+        sibling_block = ""
+
+    prompt = f"""You are an expert cycling coach. Create structured workout steps for this session.
+
+SESSION
+- Title: {session.title}
+- Type: {session.session_type}
+- Duration: {session.duration_min} min
+- TSS target: {session.tss_target}
+- Day: {session.day_of_week}, Week {week.week_number} ({week.phase} phase)
+- Week focus: {week.description}
+{(chr(10) + sibling_block) if sibling_block else ""}
+PLAN CONTEXT
+{plan.rationale or plan.summary}
+
+Rules:
+- power_low / power_high are fractions of FTP (e.g. 0.95 = 95% FTP)
+- Use repeat > 1 for interval blocks (e.g. 3x8min intervals = one step with repeat=3)
+- Total duration of all steps × repeat must equal {session.duration_min * 60} seconds (±60s)
+- Add a brief description cue to each step
+
+Call the create_session_steps tool."""
+
+    log.info("generating steps for session %d: %s", session.id, session.title)
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    response = _stream(client, label=f"steps: {session.title}", prompt=prompt,
+                       model="claude-sonnet-4-6", max_tokens=4000,
+                       tools=[_STEPS_TOOL],
+                       tool_choice={"type": "tool", "name": "create_session_steps"})
 
     if response.stop_reason == "max_tokens":
-        raise ValueError(f"Response was truncated (max_tokens). Try a shorter plan horizon.")
+        raise ValueError("Steps response truncated.")
 
     tool_use = next((b for b in response.content if b.type == "tool_use"), None)
     if tool_use is None:
-        raise ValueError(f"Claude did not return a tool call. stop_reason={response.stop_reason}")
+        raise ValueError(f"No tool call in steps response. stop_reason={response.stop_reason}")
 
-    return tool_use.input
+    steps = tool_use.input["steps"]
+    log.info("generated %d steps for session %d", len(steps), session.id)
+    return steps
