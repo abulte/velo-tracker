@@ -3,8 +3,62 @@
 
 {% block content %}
 {% set type_colors = {"endurance": "badge-info", "threshold": "badge-warning", "vo2max": "badge-error", "recovery": "badge-success", "long": "badge-neutral"} %}
-{% set step_colors = {"warmup": "text-info", "interval": "text-warning", "recovery": "text-success", "cooldown": "text-base-content/50", "steady": "text-primary"} %}
 {% set phase_colors = {"base": "badge-info", "build": "badge-warning", "peak": "badge-error", "taper": "badge-success"} %}
+
+{# Zone thresholds (% FTP as fraction). Determined by midpoint of power_low/power_high. #}
+{# Z1 <0.55 · Z2 0.55–0.75 · Z3 0.75–0.90 · Z4 0.90–1.05 · Z5 1.05–1.20 · Z6 >1.20 #}
+{% macro zone_info(power_low, power_high) %}
+  {% set mid = (power_low + power_high) / 2 %}
+  {% if mid < 0.55 %}
+    {% set z = "Z1" %}{% set border = "border-l-sky-300" %}{% set bg = "bg-sky-300" %}
+  {% elif mid < 0.75 %}
+    {% set z = "Z2" %}{% set border = "border-l-blue-400" %}{% set bg = "bg-blue-400" %}
+  {% elif mid < 0.90 %}
+    {% set z = "Z3" %}{% set border = "border-l-green-400" %}{% set bg = "bg-green-400" %}
+  {% elif mid < 1.05 %}
+    {% set z = "Z4" %}{% set border = "border-l-yellow-400" %}{% set bg = "bg-yellow-400" %}
+  {% elif mid < 1.20 %}
+    {% set z = "Z5" %}{% set border = "border-l-orange-400" %}{% set bg = "bg-orange-400" %}
+  {% else %}
+    {% set z = "Z6" %}{% set border = "border-l-red-500" %}{% set bg = "bg-red-500" %}
+  {% endif %}
+  {{ z }}|{{ border }}|{{ bg }}
+{% endmacro %}
+
+{% macro render_step(step, indent=false) %}
+    {% set zi = zone_info(step.power_low, step.power_high) %}
+    {% set zi_parts = zi.strip().split('|') %}
+    {% set z_label = zi_parts[0] %}
+    {% set z_border = zi_parts[1] %}
+    {% set z_bg = zi_parts[2] %}
+    {% set dur = step.duration_sec %}
+    <div class="card bg-base-100 {% if indent %}shadow-sm{% else %}shadow{% endif %} border-l-4 {{ z_border }} {% if indent %}ml-4{% endif %}">
+        <div class="card-body p-4">
+            <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold capitalize">{{ step.type }}</span>
+                    <span class="badge badge-sm {{ z_bg }} text-white border-none">{{ z_label }}</span>
+                </div>
+                <span class="text-sm text-base-content/50">
+                    {% if dur >= 3600 %}{{ (dur / 3600) | round(1) }}h{% else %}{{ (dur / 60) | int }}min{% endif %}
+                </span>
+            </div>
+            <div class="text-sm mt-1">
+                <span class="text-base-content/50">Power:</span>
+                {{ (step.power_low * 100) | int }}–{{ (step.power_high * 100) | int }}% FTP
+                {% if ftp %}
+                <span class="text-base-content/40">({{ (step.power_low * ftp) | int }}–{{ (step.power_high * ftp) | int }}W)</span>
+                {% endif %}
+                {% if step.get('cadence') %}
+                · <span class="text-base-content/50">Cadence:</span> {{ step.cadence }} rpm
+                {% endif %}
+            </div>
+            {% if step.get('description') %}
+            <p class="text-sm text-base-content/60 mt-1">{{ step.description }}</p>
+            {% endif %}
+        </div>
+    </div>
+{% endmacro %}
 
 <div class="text-sm text-base-content/50 mb-4">
     <a href="/goals" class="link link-hover">Goals</a> /
@@ -15,11 +69,11 @@
 <div class="max-w-xl">
     <div class="flex items-center gap-2 flex-wrap mb-1">
         <span class="badge {{ type_colors.get(s.session_type, 'badge-neutral') }}">{{ s.session_type }}</span>
-        <span class="badge badge-outline badge-sm {{ phase_colors.get(week.phase, '') }}">{{ week.phase }}</span>
+        <span class="badge badge-outline {{ phase_colors.get(week.phase, '') }}">{{ week.phase }}</span>
         <span class="text-base-content/50 text-sm">{{ s.day_of_week | capitalize }} · Week {{ week.week_number }}</span>
     </div>
     <h1 class="text-2xl font-bold mb-1">{{ s.title }}</h1>
-    <p class="text-base-content/50 text-sm mb-6">{{ s.duration_min }} min · {{ s.tss_target }} TSS</p>
+    <p class="text-base-content/50 text-sm mb-6">{% if s.duration_min >= 60 %}{% set h = (s.duration_min // 60) | int %}{% set m = (s.duration_min % 60) | int %}{{ h }}h{% if m %}{{ '%02d' | format(m) }}{% endif %}{% else %}{{ s.duration_min }} min{% endif %} · {{ s.tss_target }} TSS{% if ftp %} · FTP {{ ftp }}W{% endif %}</p>
 
     {% if s.steps is none %}
     <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"
@@ -29,31 +83,25 @@
     {% elif s.steps %}
     <div class="space-y-2">
         {% for step in s.steps %}
-        {% set repeat = step.get('repeat', 1) %}
-        <div class="card bg-base-100 shadow">
-            <div class="card-body p-4">
-                <div class="flex items-center justify-between gap-2">
-                    <div class="flex items-center gap-2">
-                        <span class="font-semibold {{ step_colors.get(step.type, '') }} capitalize">{{ step.type }}</span>
-                        {% if repeat > 1 %}<span class="badge badge-outline badge-sm">×{{ repeat }}</span>{% endif %}
-                    </div>
-                    <span class="text-sm text-base-content/50">
-                        {% set dur = step.duration_sec * repeat %}
-                        {% if dur >= 3600 %}{{ (dur / 3600) | round(1) }}h{% else %}{{ (dur / 60) | int }}min{% endif %}
+        {% if step.type == 'set' %}
+            {% set ns = namespace(set_dur=0) %}
+            {% for inner in step.steps %}{% set ns.set_dur = ns.set_dur + inner.duration_sec %}{% endfor %}
+            {% set set_total = ns.set_dur * step.repeat %}
+            <div class="rounded-lg border border-base-300 p-3 space-y-2">
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-sm text-base-content/70">Set</span>
+                    <span class="badge badge-outline badge-sm">×{{ step.repeat }}</span>
+                    <span class="text-sm text-base-content/50 ml-auto">
+                        {% if set_total >= 3600 %}{{ (set_total / 3600) | round(1) }}h{% else %}{{ (set_total / 60) | int }}min{% endif %}
                     </span>
                 </div>
-                <div class="text-sm mt-1">
-                    <span class="text-base-content/50">Power:</span>
-                    {{ (step.power_low * 100) | int }}–{{ (step.power_high * 100) | int }}% FTP
-                    {% if step.get('cadence') %}
-                    · <span class="text-base-content/50">Cadence:</span> {{ step.cadence }} rpm
-                    {% endif %}
-                </div>
-                {% if step.get('description') %}
-                <p class="text-sm text-base-content/60 mt-1">{{ step.description }}</p>
-                {% endif %}
+                {% for inner in step.steps %}
+                {{ render_step(inner, indent=true) }}
+                {% endfor %}
             </div>
-        </div>
+        {% else %}
+        {{ render_step(step) }}
+        {% endif %}
         {% endfor %}
     </div>
 

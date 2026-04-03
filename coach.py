@@ -62,6 +62,32 @@ _SKELETON_TOOL = {
     },
 }
 
+_STEP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {
+            "type": "string",
+            "enum": ["warmup", "interval", "recovery", "cooldown", "steady"],
+        },
+        "duration_sec": {"type": "integer"},
+        "power_low":  {"type": "number", "description": "% of FTP, e.g. 0.95"},
+        "power_high": {"type": "number", "description": "% of FTP, e.g. 1.05"},
+        "cadence":    {"type": "integer", "description": "Target RPM (optional)"},
+        "description": {"type": "string", "description": "Brief cue for this step"},
+    },
+    "required": ["type", "duration_sec", "power_low", "power_high"],
+}
+
+_SET_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "type": {"type": "string", "enum": ["set"]},
+        "repeat": {"type": "integer", "description": "Number of times to repeat the set"},
+        "steps": {"type": "array", "items": _STEP_SCHEMA},
+    },
+    "required": ["type", "repeat", "steps"],
+}
+
 _STEPS_TOOL = {
     "name": "create_session_steps",
     "description": "Create structured workout steps for a single training session.",
@@ -70,22 +96,8 @@ _STEPS_TOOL = {
         "properties": {
             "steps": {
                 "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "type": {
-                            "type": "string",
-                            "enum": ["warmup", "interval", "recovery", "cooldown", "steady"],
-                        },
-                        "duration_sec": {"type": "integer"},
-                        "power_low":  {"type": "number", "description": "% of FTP, e.g. 0.95"},
-                        "power_high": {"type": "number", "description": "% of FTP, e.g. 1.05"},
-                        "cadence":    {"type": "integer", "description": "Target RPM (optional)"},
-                        "repeat":     {"type": "integer", "description": "Repetitions of this step (default 1)"},
-                        "description": {"type": "string", "description": "Brief cue for this step"},
-                    },
-                    "required": ["type", "duration_sec", "power_low", "power_high"],
-                },
+                "description": "Top-level steps. Use type='set' with nested steps for repeated interval+recovery blocks.",
+                "items": {"anyOf": [_STEP_SCHEMA, _SET_SCHEMA]},
             },
         },
         "required": ["steps"],
@@ -278,8 +290,9 @@ PLAN CONTEXT
 
 Rules:
 - power_low / power_high are fractions of FTP (e.g. 0.95 = 95% FTP)
-- Use repeat > 1 for interval blocks (e.g. 3x8min intervals = one step with repeat=3)
-- Total duration of all steps × repeat must equal {session.duration_min * 60} seconds (±60s)
+- Use type="set" with repeat > 1 for repeated interval+recovery blocks (e.g. 3×(8min interval + 4min recovery) = one set with repeat=3 containing two steps)
+- Warmup and cooldown are plain steps (not sets), repeat is always 1
+- Total duration must equal {session.duration_min * 60} seconds (±60s): sum each plain step's duration_sec, and each set's (repeat × sum of inner step durations)
 - Add a brief description cue to each step
 
 Call the create_session_steps tool."""

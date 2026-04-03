@@ -772,8 +772,9 @@ def show_session(session_id: int):
         week = session.get(TrainingWeek, s.week_id)
         plan = session.get(TrainingPlan, week.plan_id)
         goal = session.get(Goal, plan.goal_id)
+        profile = session.get(UserProfile, 1)
 
-    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal)
+    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None)
 
 
 @app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])
