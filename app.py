@@ -3,6 +3,8 @@ import logging
 import math
 import os
 
+import markdown as _markdown
+
 import click
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, render_template, redirect, url_for, request
@@ -22,6 +24,11 @@ logging.basicConfig(level=logging.INFO)
 
 app = Flask("velo-tracker")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
+
+@app.template_filter("markdown")
+def markdown_filter(text):
+    from markupsafe import Markup
+    return Markup(_markdown.markdown(text or "", extensions=["nl2br", "tables"]))
 
 database_url = os.getenv("DATABASE_URL", "")
 if database_url.startswith("postgres://"):
@@ -654,7 +661,7 @@ def generate_plan(goal_id: int):
             return "Not found", 404
         profile = session.get(UserProfile, 1)
         if not profile or not profile.ftp:
-            return render_template("plan/_generate_error.html",
+            return render_template("goals/_actions.html", goal=goal, plan_id=None,
                                    error="Set your FTP in Profile before generating a plan.")
 
         # Load availability for the plan horizon
@@ -678,7 +685,8 @@ def generate_plan(goal_id: int):
             app.logger.info("plan_data keys: %s, weeks: %d", list(plan_data.keys()), len(plan_data.get("weeks", [])))
         except Exception as e:
             app.logger.exception("generate_plan failed")
-            return render_template("plan/_generate_error.html", error=str(e))
+            return render_template("goals/_actions.html", goal=goal, plan_id=None, error=str(e))
+
 
         # Deactivate existing plans for this goal
         existing_plans = session.exec(
@@ -722,7 +730,7 @@ def generate_plan(goal_id: int):
         session.commit()
         plan_id = plan.id
 
-    return redirect(url_for("show_plan", plan_id=plan_id))
+        return render_template("goals/_actions.html", goal=goal, plan_id=plan_id)
 
 
 @app.route("/plan/<int:plan_id>")
@@ -732,11 +740,13 @@ def show_plan(plan_id: int):
         if not plan:
             return "Not found", 404
         goal = session.get(Goal, plan.goal_id)
+        profile = session.get(UserProfile, 1)
         weeks = session.exec(
             select(TrainingWeek)
             .where(TrainingWeek.plan_id == plan_id)
             .order_by(TrainingWeek.week_number)
         ).all()
+
         # Pre-group sessions by week_id → day_of_week → [sessions]
         sessions_by_week = {}
         for week in weeks:
@@ -746,6 +756,27 @@ def show_plan(plan_id: int):
             ).all():
                 by_day[s.day_of_week].append(s)
             sessions_by_week[week.id] = by_day
+
+        # Compute availability per week: derive week_start from plan start + week_number
+        plan_monday = plan.generated_at.date()
+        plan_monday -= datetime.timedelta(days=plan_monday.weekday())
+        week_starts = [plan_monday + datetime.timedelta(weeks=w.week_number - 1) for w in weeks]
+        avail_weeks_map = {w.week_start: w for w in session.exec(
+            select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
+        ).all()}
+
+        avail_by_week = {}
+        for week in weeks:
+            ws = plan_monday + datetime.timedelta(weeks=week.week_number - 1)
+            avail_week = avail_weeks_map.get(ws)
+            if avail_week and avail_week.week_type == "custom" and avail_week.hours:
+                hours = {d: avail_week.hours.get(d, 0.0) for d in _DAYS}
+            else:
+                tmpl = {}
+                if profile:
+                    tmpl = (profile.week_a if (not avail_week or avail_week.week_type == "a") else profile.week_b) or {}
+                hours = {d: tmpl.get(d, 0.0) for d in _DAYS}
+            avail_by_week[week.id] = hours
 
     # Determine current week number in plan
     today = datetime.date.today()
@@ -758,6 +789,7 @@ def show_plan(plan_id: int):
         goal=goal,
         weeks=weeks,
         sessions_by_week=sessions_by_week,
+        avail_by_week=avail_by_week,
         current_week_num=current_week_num,
         days=_DAYS,
     )

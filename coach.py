@@ -156,11 +156,13 @@ def _build_context(goal, profile, pmc_current, avail_weeks_map):
     for i in range(plan_weeks):
         ws = monday + datetime.timedelta(weeks=i)
         hours = _resolve_week_hours(ws, avail_weeks_map.get(ws), profile)
-        riding_days = [d for d in _DAYS if hours.get(d, 0) > 0]
         total_h = sum(hours.values())
+        day_detail = ", ".join(
+            f"{d} {hours[d]:.4g}h" for d in _DAYS if hours.get(d, 0) > 0
+        )
         avail_lines.append(
             f"  Week {i+1} ({ws.strftime('%-d %b')}): "
-            f"{total_h:.1f}h — {', '.join(riding_days) if riding_days else 'no riding'}"
+            f"{total_h:.4g}h total — {day_detail if day_detail else 'no riding'}"
         )
 
     goal_type_desc = {
@@ -178,7 +180,7 @@ GOAL
 - {plan_weeks} weeks to plan{f' (of {weeks_to_goal} total)' if weeks_to_goal > plan_weeks else ''}
 {f'- Notes: {goal.notes}' if goal.notes else ''}
 
-WEEKLY AVAILABILITY
+WEEKLY AVAILABILITY (max hours per day — sessions may be shorter)
 {chr(10).join(avail_lines)}
 
 POWER ZONES (% FTP): Z1 <55%  Z2 55–75%  Z3 75–90%  Z4 90–105%  Z5 105–120%
@@ -232,7 +234,7 @@ YOUR RATIONALE
 
 Rules:
 - Only schedule sessions on days with available hours
-- Match session duration to the available hours for that day
+- Available hours per day are the MAXIMUM — session duration must not exceed them, but can be shorter based on training load
 - No workout step detail — titles and types only (steps are generated separately per session)
 
 Call the create_plan_skeleton tool."""

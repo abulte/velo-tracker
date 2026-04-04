@@ -1,0 +1,16 @@
+<div id="goal-actions-{{ goal.id }}" class="flex gap-2 shrink-0 flex-wrap items-start">
+    {% set plan_id = plan_id if plan_id is defined else active_plans.get(goal.id) %}
+    {% if error is defined and error %}
+    <span class="text-error text-sm">{{ error }}</span>
+    {% endif %}
+    {% if plan_id %}
+    <a href="/plan/{{ plan_id }}" class="btn btn-sm btn-primary">View Plan</a>
+    {% endif %}
+    <button class="btn btn-sm {{ 'btn-outline' if plan_id else 'btn-secondary' }}"
+            hx-post="/goals/{{ goal.id }}/generate-plan"
+            hx-target="#goal-actions-{{ goal.id }}"
+            hx-swap="outerHTML"
+            hx-on::before-request="this.classList.add('loading'); this.disabled=true;">
+        {{ 'Regenerate Plan' if plan_id else 'Generate Plan' }}
+    </button>
+</div>
