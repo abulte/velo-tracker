@@ -171,8 +171,11 @@ def _build_context(goal, profile, pmc_current, avail_weeks_map):
         "endurance": f"build endurance by {goal.target_date.strftime('%d %b %Y')}",
     }.get(goal.goal_type, goal.goal_type)
 
+    wpkg = f"{profile.ftp / profile.weight_kg:.2f}" if profile.ftp and profile.weight_kg else None
     context = f"""ATHLETE
-- FTP: {profile.ftp or 'unknown'}W
+- FTP: {profile.ftp or 'unknown'}W{f' ({wpkg} W/kg)' if wpkg else ''}
+- Weight: {f'{profile.weight_kg}kg' if profile.weight_kg else 'unknown'}
+- Level: {profile.athlete_level or 'unknown'}{f' (peak CTL {profile.peak_ctl:.0f})' if profile.peak_ctl else ''}
 - Fitness (CTL): {pmc_current.get('ctl', 0):.1f}  Fatigue (ATL): {pmc_current.get('atl', 0):.1f}  Form (TSB): {pmc_current.get('tsb', 0):.1f}
 
 GOAL

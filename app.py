@@ -15,6 +15,7 @@ from sqlmodel import Session, create_engine, select
 from cli import sync_activities
 from climbs import detect_climbs
 from coach import generate_plan as _generate_plan, generate_session_steps
+from icu import sync_athlete as _sync_icu, _classify_level
 from models import Activity, Route, UserProfile, Goal, AvailabilityWeek, TrainingPlan, TrainingWeek, TrainingSession
 from routes import assign_route_to_all
 
@@ -511,12 +512,18 @@ def profile():
             ftp = request.form.get("ftp", type=int)
             week_a = {d: request.form.get(f"a_{d}", type=float) or 0.0 for d in _DAYS}
             week_b = {d: request.form.get(f"b_{d}", type=float) or 0.0 for d in _DAYS}
+            icu_athlete_id = request.form.get("icu_athlete_id", "").strip() or None
+            icu_api_key = request.form.get("icu_api_key", "").strip() or None
             if p is None:
-                p = UserProfile(id=1, ftp=ftp, week_a=week_a, week_b=week_b)
+                p = UserProfile(id=1, ftp=ftp, week_a=week_a, week_b=week_b,
+                                icu_athlete_id=icu_athlete_id, icu_api_key=icu_api_key)
             else:
                 p.ftp = ftp
                 p.week_a = week_a
                 p.week_b = week_b
+                p.icu_athlete_id = icu_athlete_id
+                if icu_api_key:
+                    p.icu_api_key = icu_api_key
                 p.updated_at = datetime.datetime.utcnow()
             session.add(p)
             session.commit()
@@ -530,6 +537,28 @@ def profile():
                            weeks=weeks, week_starts=week_starts,
                            today=datetime.date.today(),
                            timedelta=datetime.timedelta)
+
+
+@app.route("/profile/sync-icu", methods=["POST"])
+def sync_icu():
+    with get_session() as session:
+        p = session.get(UserProfile, 1)
+        if not p or not p.icu_athlete_id or not p.icu_api_key:
+            return render_template("profile/_icu.html", profile=p,
+                                   error="Set your intervals.icu athlete ID and API key first.")
+        try:
+            data = _sync_icu(p.icu_athlete_id, p.icu_api_key)
+        except Exception as e:
+            return render_template("profile/_icu.html", profile=p, error=str(e))
+        for k, v in data.items():
+            setattr(p, k, v)
+        # Refine level using profile FTP + synced weight
+        if p.ftp and p.weight_kg and p.peak_ctl:
+            p.athlete_level = _classify_level(p.peak_ctl, p.ftp / p.weight_kg)
+        p.updated_at = datetime.datetime.utcnow()
+        session.add(p)
+        session.commit()
+        return render_template("profile/_icu.html", profile=p)
 
 
 @app.route("/profile/weeks/init", methods=["POST"])

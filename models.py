@@ -7,9 +7,16 @@ from sqlmodel import Field, SQLModel
 class UserProfile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ftp: Optional[int] = None  # watts
+    weight_kg: Optional[float] = None
     # per-day hours templates: {"mon": 0, "tue": 1.5, "wed": 0, "thu": 1.5, "fri": 0, "sat": 4, "sun": 2.5}
     week_a: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     week_b: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    # intervals.icu
+    icu_athlete_id: Optional[str] = None
+    icu_api_key: Optional[str] = None
+    peak_ctl: Optional[float] = None
+    athlete_level: Optional[str] = None  # "recreational" | "amateur" | "competitive" | "elite"
+    icu_synced_at: Optional[datetime.datetime] = None
     updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 

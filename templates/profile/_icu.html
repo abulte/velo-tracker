@@ -1,0 +1,35 @@
+<div id="icu-section" class="card bg-base-100 shadow p-6 space-y-4">
+    <h2 class="text-lg font-semibold">intervals.icu</h2>
+
+    {% if error is defined and error %}
+    <div class="alert alert-error text-sm py-2">{{ error }}</div>
+    {% endif %}
+
+    {% if profile and profile.icu_synced_at %}
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+        {% set stats = [
+            ("Level", profile.athlete_level | capitalize if profile.athlete_level else None),
+            ("Weight", profile.weight_kg ~ "kg" if profile.weight_kg else None),
+            ("W/kg", (profile.ftp / profile.weight_kg) | round(2) if profile.ftp and profile.weight_kg else None),
+            ("Peak CTL", profile.peak_ctl | round(1) if profile.peak_ctl else None),
+        ] %}
+        {% for label, value in stats %}
+        {% if value %}
+        <div class="bg-base-200 rounded-lg px-3 py-2">
+            <div class="text-xs text-base-content/50 mb-0.5">{{ label }}</div>
+            <div class="font-semibold">{{ value }}</div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    <p class="text-xs text-base-content/40">Synced {{ profile.icu_synced_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    {% endif %}
+
+    <button class="btn btn-sm btn-outline"
+            hx-post="/profile/sync-icu"
+            hx-target="#icu-section"
+            hx-swap="outerHTML"
+            hx-on::before-request="this.classList.add('loading'); this.disabled=true;">
+        {% if profile and profile.icu_synced_at %}Sync again{% else %}Sync from intervals.icu{% endif %}
+    </button>
+</div>
