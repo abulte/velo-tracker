@@ -20,13 +20,6 @@ class UserProfile(SQLModel, table=True):
     updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
 
 
-class AvailabilityWeek(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    week_start: datetime.date = Field(unique=True, index=True)  # always Monday
-    week_type: str  # "a" | "b" | "custom"
-    # per-day hours, only used when week_type == "custom"
-    hours: Optional[dict] = Field(default=None, sa_column=Column(JSON))
-
 
 class Goal(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -43,6 +36,7 @@ class TrainingPlan(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     goal_id: int = Field(foreign_key="goal.id", index=True)
     generated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    start_date: Optional[datetime.date] = Field(default=None)  # Monday of week 1
     summary: str
     rationale: Optional[str] = None  # full coaching analysis from turn 1
     is_active: bool = False
@@ -55,6 +49,10 @@ class TrainingWeek(SQLModel, table=True):
     phase: str  # "base" | "build" | "peak" | "taper"
     tss_target: int
     description: str
+    week_start: Optional[datetime.date] = Field(default=None)  # Monday of that week, set at generation
+    stale: bool = Field(default=False)  # True when availability changed since generation
+    week_type: str = Field(default="a")  # "a" | "b" | "custom"
+    avail_override: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # per-day hours, only when week_type="custom"
 
 
 class TrainingSession(SQLModel, table=True):

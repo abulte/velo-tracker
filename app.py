@@ -14,9 +14,9 @@ from sqlmodel import Session, create_engine, select
 
 from cli import sync_activities
 from climbs import detect_climbs
-from coach import generate_plan as _generate_plan, generate_session_steps
+from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours
 from icu import sync_athlete as _sync_icu, _classify_level
-from models import Activity, Route, UserProfile, Goal, AvailabilityWeek, TrainingPlan, TrainingWeek, TrainingSession
+from models import Activity, Route, UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession
 from routes import assign_route_to_all
 
 load_dotenv()
@@ -487,20 +487,18 @@ def activity_gpx(garmin_id: str):
 
 
 _DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+def _delete_plan(plan, db):
+    """Cascade-delete a plan and all its weeks and sessions."""
+    for week in db.exec(select(TrainingWeek).where(TrainingWeek.plan_id == plan.id)).all():
+        for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+            db.delete(s)
+        db.delete(week)
+    db.flush()
+    db.delete(plan)
 _DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
-
-def _upcoming_week_starts(n=20):
-    today = datetime.date.today()
-    monday = today - datetime.timedelta(days=today.weekday())
-    return [monday + datetime.timedelta(weeks=i) for i in range(n)]
-
-
-def _load_weeks(session, week_starts):
-    existing = {w.week_start: w for w in session.exec(
-        select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
-    ).all()}
-    return [existing.get(ws) for ws in week_starts]
 
 
 @app.route("/profile", methods=["GET", "POST"])
@@ -529,14 +527,8 @@ def profile():
             session.commit()
             return redirect(url_for("profile"))
 
-        week_starts = _upcoming_week_starts()
-        weeks = _load_weeks(session, week_starts)
-
     return render_template("profile.html", profile=p,
-                           days=_DAYS, day_labels=_DAY_LABELS,
-                           weeks=weeks, week_starts=week_starts,
-                           today=datetime.date.today(),
-                           timedelta=datetime.timedelta)
+                           days=_DAYS, day_labels=_DAY_LABELS)
 
 
 @app.route("/profile/sync-icu", methods=["POST"])
@@ -561,54 +553,6 @@ def sync_icu():
         return render_template("profile/_icu.html", profile=p)
 
 
-@app.route("/profile/weeks/init", methods=["POST"])
-def init_availability_weeks():
-    start_type = request.form.get("start_type", "a")
-    week_starts = _upcoming_week_starts()
-
-    with get_session() as session:
-        existing = {w.week_start: w for w in session.exec(
-            select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
-        ).all()}
-        for i, ws in enumerate(week_starts):
-            if ws not in existing:
-                week_type = "a" if (i % 2 == 0) == (start_type == "a") else "b"
-                session.add(AvailabilityWeek(week_start=ws, week_type=week_type))
-        session.commit()
-        weeks = _load_weeks(session, week_starts)
-        p = session.get(UserProfile, 1)
-
-    return render_template("profile/_weeks.html", profile=p,
-                           days=_DAYS, day_labels=_DAY_LABELS,
-                           weeks=weeks, week_starts=week_starts,
-                           today=datetime.date.today(),
-                           timedelta=datetime.timedelta)
-
-
-@app.route("/profile/weeks/<string:week_start_str>", methods=["POST"])
-def update_availability_week(week_start_str: str):
-    week_start = datetime.date.fromisoformat(week_start_str)
-    week_type = request.form.get("week_type", "a")
-
-    with get_session() as session:
-        w = session.exec(
-            select(AvailabilityWeek).where(AvailabilityWeek.week_start == week_start)
-        ).first()
-        if w is None:
-            w = AvailabilityWeek(week_start=week_start, week_type=week_type)
-        else:
-            w.week_type = week_type
-        w.hours = {d: request.form.get(f"h_{d}", type=float) or 0.0 for d in _DAYS} if week_type == "custom" else None
-        session.add(w)
-        session.commit()
-        session.refresh(w)
-        p = session.get(UserProfile, 1)
-
-    return render_template("profile/_week_row.html", week=w, week_start=week_start,
-                           profile=p, days=_DAYS, day_labels=_DAY_LABELS,
-                           today=datetime.date.today(),
-                           timedelta=datetime.timedelta)
-
 
 @app.route("/goals")
 def list_goals():
@@ -618,8 +562,11 @@ def list_goals():
             select(TrainingPlan).where(TrainingPlan.is_active == True)  # noqa: E712
         ).all()}
 
-    return render_template("goals/list.html", goals=goals, today_date=datetime.date.today(),
-                           active_plans=active_plans)
+    today = datetime.date.today()
+    next_monday = today + datetime.timedelta(days=-today.weekday(), weeks=1) if today.weekday() != 0 else today
+
+    return render_template("goals/list.html", goals=goals, today_date=today,
+                           active_plans=active_plans, next_monday=next_monday)
 
 
 @app.route("/goals", methods=["POST"])
@@ -693,15 +640,11 @@ def generate_plan(goal_id: int):
             return render_template("goals/_actions.html", goal=goal, plan_id=None,
                                    error="Set your FTP in Profile before generating a plan.")
 
-        # Load availability for the plan horizon
-        today = datetime.date.today()
-        monday = today - datetime.timedelta(days=today.weekday())
-        plan_weeks = min(max(1, (goal.target_date - today).days // 7), 20)
-        week_starts = [monday + datetime.timedelta(weeks=i) for i in range(plan_weeks)]
-        avail_weeks = session.exec(
-            select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
-        ).all()
-        avail_map = {w.week_start: w for w in avail_weeks}
+        # Parse modal params
+        start_date_str = request.form.get("start_date")
+        start_date = datetime.date.fromisoformat(start_date_str) if start_date_str else datetime.date.today()
+        start_date -= datetime.timedelta(days=start_date.weekday())  # snap to Monday
+        start_week_type = request.form.get("start_week_type", "a")
 
         # Current PMC values
         activities = session.exec(select(Activity).order_by(Activity.start_date.desc())).all()
@@ -710,24 +653,21 @@ def generate_plan(goal_id: int):
 
         # Call Claude
         try:
-            plan_data = _generate_plan(goal, profile, pmc_current, avail_map)
+            plan_data = _generate_plan(goal, profile, pmc_current, start_date, start_week_type)
             app.logger.info("plan_data keys: %s, weeks: %d", list(plan_data.keys()), len(plan_data.get("weeks", [])))
         except Exception as e:
             app.logger.exception("generate_plan failed")
             return render_template("goals/_actions.html", goal=goal, plan_id=None, error=str(e))
 
-
-        # Deactivate existing plans for this goal
-        existing_plans = session.exec(
-            select(TrainingPlan).where(TrainingPlan.goal_id == goal_id)
-        ).all()
-        for p in existing_plans:
-            p.is_active = False
-            session.add(p)
+        # Delete existing plans for this goal
+        for p in session.exec(select(TrainingPlan).where(TrainingPlan.goal_id == goal_id)).all():
+            _delete_plan(p, session)
+        session.flush()
 
         # Store new plan
         plan = TrainingPlan(
             goal_id=goal_id,
+            start_date=start_date,
             summary=plan_data["summary"],
             rationale=plan_data.get("rationale"),
             is_active=True,
@@ -736,12 +676,17 @@ def generate_plan(goal_id: int):
         session.flush()
 
         for week_data in plan_data["weeks"]:
+            n = week_data["week_number"]
+            week_type = "a" if (n % 2 == 1) == (start_week_type == "a") else "b"
+            week_start = start_date + datetime.timedelta(weeks=n - 1)
             week = TrainingWeek(
                 plan_id=plan.id,
-                week_number=week_data["week_number"],
+                week_number=n,
                 phase=week_data["phase"],
                 tss_target=week_data["tss_target"],
                 description=week_data["description"],
+                week_start=week_start,
+                week_type=week_type,
             )
             session.add(week)
             session.flush()
@@ -759,7 +704,7 @@ def generate_plan(goal_id: int):
         session.commit()
         plan_id = plan.id
 
-        return render_template("goals/_actions.html", goal=goal, plan_id=plan_id)
+        return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
 
 
 @app.route("/plan/<int:plan_id>")
@@ -786,31 +731,16 @@ def show_plan(plan_id: int):
                 by_day[s.day_of_week].append(s)
             sessions_by_week[week.id] = by_day
 
-        # Compute availability per week: derive week_start from plan start + week_number
-        plan_monday = plan.generated_at.date()
-        plan_monday -= datetime.timedelta(days=plan_monday.weekday())
-        week_starts = [plan_monday + datetime.timedelta(weeks=w.week_number - 1) for w in weeks]
-        avail_weeks_map = {w.week_start: w for w in session.exec(
-            select(AvailabilityWeek).where(AvailabilityWeek.week_start.in_(week_starts))
-        ).all()}
-
-        avail_by_week = {}
-        for week in weeks:
-            ws = plan_monday + datetime.timedelta(weeks=week.week_number - 1)
-            avail_week = avail_weeks_map.get(ws)
-            if avail_week and avail_week.week_type == "custom" and avail_week.hours:
-                hours = {d: avail_week.hours.get(d, 0.0) for d in _DAYS}
-            else:
-                tmpl = {}
-                if profile:
-                    tmpl = (profile.week_a if (not avail_week or avail_week.week_type == "a") else profile.week_b) or {}
-                hours = {d: tmpl.get(d, 0.0) for d in _DAYS}
-            avail_by_week[week.id] = hours
+        avail_by_week = {week.id: _resolve_week_hours(week, profile) for week in weeks}
 
     # Determine current week number in plan
     today = datetime.date.today()
-    plan_start = plan.generated_at.date()
-    current_week_num = (today - plan_start).days // 7 + 1
+    current_week_num = next(
+        (w.week_number for w in weeks if w.week_start and w.week_start <= today <= w.week_start + datetime.timedelta(days=6)),
+        None,
+    )
+
+    stale_weeks = [w for w in weeks if w.stale]
 
     return render_template(
         "plan/show.html",
@@ -820,7 +750,9 @@ def show_plan(plan_id: int):
         sessions_by_week=sessions_by_week,
         avail_by_week=avail_by_week,
         current_week_num=current_week_num,
+        stale_weeks=stale_weeks,
         days=_DAYS,
+        timedelta=datetime.timedelta,
     )
 
 
@@ -835,7 +767,7 @@ def show_session(session_id: int):
         goal = session.get(Goal, plan.goal_id)
         profile = session.get(UserProfile, 1)
 
-    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None)
+    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta)
 
 
 @app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])
@@ -857,6 +789,103 @@ def regenerate_session_steps(session_id: int):
         session.commit()
 
     return redirect(url_for("show_session", session_id=session_id))
+
+
+@app.route("/plan/weeks/<int:week_id>/availability", methods=["POST"])
+def save_week_availability(week_id: int):
+    with get_session() as db:
+        week = db.get(TrainingWeek, week_id)
+        if not week:
+            return "Not found", 404
+
+        hours = {d: request.form.get(f"h_{d}", type=float) or 0.0 for d in _DAYS}
+        week.week_type = "custom"
+        week.avail_override = hours
+        week.stale = True
+        db.add(week)
+        db.commit()
+
+        stale_weeks = db.exec(
+            select(TrainingWeek).where(
+                TrainingWeek.plan_id == week.plan_id,
+                TrainingWeek.stale == True,
+            )
+        ).all()
+        plan = db.get(TrainingPlan, week.plan_id)
+
+    badge_html = render_template("plan/_week_stale_badge.html", week=week)
+    banner_html = render_template("plan/_stale_banner.html", plan=plan, stale_weeks=stale_weeks)
+    display_swaps = "".join(
+        f'<div id="avail-display-{week_id}-{d}" hx-swap-oob="innerHTML">'
+        f'{"{}h".format(hours[d]) if hours[d] > 0 else "+"}'
+        f'</div>'
+        for d in _DAYS
+    )
+    return (
+        f'<div id="week-stale-{week_id}" hx-swap-oob="true">{badge_html}</div>'
+        f'<div id="stale-banner" hx-swap-oob="true">{banner_html}</div>'
+        + display_swaps
+    )
+
+
+@app.route("/plan/<int:plan_id>/regenerate-stale", methods=["POST"])
+def regenerate_stale(plan_id: int):
+    with get_session() as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if not plan:
+            return "Not found", 404
+        profile = db.get(UserProfile, 1)
+        stale_weeks = db.exec(
+            select(TrainingWeek).where(
+                TrainingWeek.plan_id == plan_id,
+                TrainingWeek.stale == True,
+            )
+        ).all()
+        if not stale_weeks:
+            return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
+
+        try:
+            revised = _regenerate_stale_weeks(plan, stale_weeks, profile)
+        except Exception as e:
+            app.logger.exception("regenerate_stale_weeks failed")
+            return f"Error: {e}", 500
+
+        revised_by_num = {w["week_number"]: w for w in revised.get("weeks", [])}
+        for week in stale_weeks:
+            new_data = revised_by_num.get(week.week_number)
+            if not new_data:
+                continue
+            for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+                db.delete(s)
+            for s in new_data.get("sessions", []):
+                db.add(TrainingSession(
+                    week_id=week.id,
+                    day_of_week=s["day_of_week"],
+                    session_type=s["session_type"],
+                    tss_target=s["tss_target"],
+                    duration_min=s["duration_min"],
+                    title=s["title"],
+                    notes=s.get("notes"),
+                ))
+            week.tss_target = new_data["tss_target"]
+            week.phase = new_data["phase"]
+            week.description = new_data["description"]
+            week.stale = False
+            db.add(week)
+        db.commit()
+
+    return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
+
+
+@app.route("/plan/<int:plan_id>/delete", methods=["POST"])
+def delete_plan(plan_id: int):
+    with get_session() as db:
+        plan = db.get(TrainingPlan, plan_id)
+        if not plan:
+            return "Not found", 404
+        _delete_plan(plan, db)
+        db.commit()
+    return redirect(url_for("list_goals"))
 
 
 @app.route("/health")

@@ -76,25 +76,6 @@
 
 {% include "profile/_icu.html" %}
 
-<div class="mb-4 flex items-center justify-between mt-10">
-    <h2 class="text-xl font-semibold">Availability Calendar</h2>
-    <div class="flex items-center gap-2">
-        <span class="text-sm text-base-content/50">Start with</span>
-        <form hx-post="/profile/weeks/init" hx-target="#weeks-calendar" hx-swap="innerHTML" class="flex gap-2">
-            <input type="hidden" name="start_type" value="a">
-            <button class="btn btn-sm btn-outline">Week A first</button>
-        </form>
-        <form hx-post="/profile/weeks/init" hx-target="#weeks-calendar" hx-swap="innerHTML" class="flex gap-2">
-            <input type="hidden" name="start_type" value="b">
-            <button class="btn btn-sm btn-outline">Week B first</button>
-        </form>
-    </div>
-</div>
-
-<div id="weeks-calendar">
-    {% include "profile/_weeks.html" %}
-</div>
-
 <script>
 function syncTotal(el) {
     const container = el.closest('[data-total-target]');

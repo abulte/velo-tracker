@@ -11,15 +11,32 @@
         <h1 class="text-2xl font-bold">{{ goal.title }}</h1>
         <p class="text-base-content/60 text-sm mt-1">{{ plan.summary }}</p>
     </div>
-    <div class="text-right shrink-0">
+    <div class="text-right shrink-0 flex flex-col items-end gap-2">
         <div class="text-sm text-base-content/50">{{ weeks | length }} weeks · target {{ goal.target_date.strftime('%-d %b %Y') }}</div>
+        <button onclick="document.getElementById('delete-plan-modal').showModal()" class="btn btn-xs btn-ghost text-error">Delete plan</button>
     </div>
 </div>
 
-<div class="space-y-4">
+<dialog id="delete-plan-modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg">Delete this plan?</h3>
+        <p class="py-4 text-base-content/60">This will permanently delete all {{ weeks | length }} weeks and their sessions. This cannot be undone.</p>
+        <div class="modal-action">
+            <form method="POST" action="/plan/{{ plan.id }}/delete">
+                <button type="submit" class="btn btn-error">Delete</button>
+            </form>
+            <button onclick="document.getElementById('delete-plan-modal').close()" class="btn">Cancel</button>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<div id="stale-banner">{% include "plan/_stale_banner.html" %}</div>
+
+<div id="plan-calendar" class="space-y-4">
 {% for week in weeks %}
 {% set is_current = week.week_number == current_week_num %}
-{% set is_past = week.week_number < current_week_num %}
+{% set is_past = current_week_num is not none and week.week_number < current_week_num %}
 
 <div class="card bg-base-100 shadow {{ 'border-2 border-primary' if is_current else 'opacity-60' if is_past else '' }}">
     <div class="card-body p-4">
@@ -29,9 +46,22 @@
                 <span class="font-semibold">Week {{ week.week_number }}</span>
                 {% if is_current %}<span class="badge badge-primary badge-sm">current</span>{% endif %}
                 <span class="badge badge-sm {{ phase_colors.get(week.phase, 'badge-neutral') }}">{{ week.phase }}</span>
+                <div id="week-stale-{{ week.id }}">{% include "plan/_week_stale_badge.html" %}</div>
                 <span class="text-sm text-base-content/60">{{ week.description }}</span>
             </div>
-            <div class="text-sm text-base-content/50 shrink-0">{{ week.tss_target }} TSS</div>
+            <div class="text-right text-sm text-base-content/50 shrink-0">
+                <div>{{ week.tss_target }} TSS</div>
+                {% if week.week_start %}
+                {% set week_end = week.week_start + timedelta(days=6) %}
+                <div class="text-xs">
+                    {% if week.week_start.month == week_end.month %}
+                        {{ week.week_start.strftime('%-d') }}–{{ week_end.strftime('%-d %b') }}
+                    {% else %}
+                        {{ week.week_start.strftime('%-d %b') }}–{{ week_end.strftime('%-d %b') }}
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
         </div>
 
         <!-- Sessions grid by day -->
@@ -43,7 +73,9 @@
             {% set day_hours = avail.get(d, 0) %}
             {% set has_content = day_sessions or day_hours > 0 %}
             <div class="min-h-16 flex flex-col {{ 'bg-base-200 rounded-lg p-2' if has_content else '' }}">
-                <div class="text-xs text-base-content/40 mb-1 capitalize">{{ d }}</div>
+                <div class="text-xs text-base-content/40 mb-1 capitalize">
+                    {{ d }}{% if week.week_start %}<span class="ml-1 text-base-content/30">{{ (week.week_start + timedelta(days=loop.index0)).day }}</span>{% endif %}
+                </div>
                 {% for s in day_sessions %}
                 {% set session_hours = s.duration_min / 60 %}
                 {% set over = day_hours > 0 and session_hours > day_hours %}
@@ -56,18 +88,25 @@
                 {% endfor %}
                 <!-- Availability -->
                 <div class="dropdown dropdown-top mt-auto pt-1">
-                    <div tabindex="0" role="button" class="text-xs text-base-content/30 hover:text-base-content/60 cursor-pointer transition-colors">
+                    <div id="avail-display-{{ week.id }}-{{ d }}" tabindex="0" role="button" class="text-xs text-base-content/30 hover:text-base-content/60 cursor-pointer transition-colors">
                         {% if day_hours > 0 %}{{ day_hours }}h{% else %}+{% endif %}
                     </div>
                     <div tabindex="0" class="dropdown-content z-10 bg-base-100 shadow rounded-lg p-2 w-28 mb-1">
                         <p class="text-xs text-base-content/50 mb-1 capitalize">{{ d }} availability</p>
                         <div class="flex items-center gap-1">
                             <input type="number" min="0" max="12" step="0.5"
+                                   id="avail-{{ week.id }}-{{ d }}"
+                                   name="h_{{ d }}"
                                    value="{{ day_hours }}"
                                    class="input input-xs input-bordered w-16" />
                             <span class="text-xs text-base-content/50">h</span>
                         </div>
-                        <button class="btn btn-xs btn-primary w-full mt-2">Save</button>
+                        <button
+                            hx-post="/plan/weeks/{{ week.id }}/availability"
+                            hx-include="#avail-{{ week.id }}-mon, #avail-{{ week.id }}-tue, #avail-{{ week.id }}-wed, #avail-{{ week.id }}-thu, #avail-{{ week.id }}-fri, #avail-{{ week.id }}-sat, #avail-{{ week.id }}-sun"
+                            hx-swap="none"
+                            hx-on::after-request="document.activeElement.blur()"
+                            class="btn btn-xs btn-primary w-full mt-2">Save</button>
                     </div>
                 </div>
             </div>

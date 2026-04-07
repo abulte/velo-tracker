@@ -60,6 +60,8 @@
     </div>
 {% endmacro %}
 
+{% set _day_offsets = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6} %}
+{% set session_date = week.week_start + timedelta(days=_day_offsets[s.day_of_week]) if week.week_start else none %}
 <div class="text-sm text-base-content/50 mb-4">
     <a href="/goals" class="link link-hover">Goals</a> /
     <a href="/plan/{{ plan.id }}" class="link link-hover">{{ goal.title }}</a> /
@@ -70,7 +72,9 @@
     <div class="flex items-center gap-2 flex-wrap mb-1">
         <span class="badge {{ type_colors.get(s.session_type, 'badge-neutral') }}">{{ s.session_type }}</span>
         <span class="badge badge-outline {{ phase_colors.get(week.phase, '') }}">{{ week.phase }}</span>
-        <span class="text-base-content/50 text-sm">{{ s.day_of_week | capitalize }} · Week {{ week.week_number }}</span>
+        <span class="text-base-content/50 text-sm">
+            {% if session_date %}{{ session_date.strftime('%-d %b %Y') }}{% else %}{{ s.day_of_week | capitalize }} · Week {{ week.week_number }}{% endif %}
+        </span>
     </div>
     <h1 class="text-2xl font-bold mb-1">{{ s.title }}</h1>
     <p class="text-base-content/50 text-sm mb-6">{% if s.duration_min >= 60 %}{% set h = (s.duration_min // 60) | int %}{% set m = (s.duration_min % 60) | int %}{{ h }}h{% if m %}{{ '%02d' | format(m) }}{% endif %}{% else %}{{ s.duration_min }} min{% endif %} · {{ s.tss_target }} TSS{% if ftp %} · FTP {{ ftp }}W{% endif %}</p>

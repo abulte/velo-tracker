@@ -8,6 +8,9 @@ import anthropic
 log = logging.getLogger(__name__)
 
 _DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+# FIXME: switch back to sonnet/opus for production
+_MODEL = "claude-haiku-4-5-20251001"  # "claude-sonnet-4-6"
+_MAX_TOKENS = 32000
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -108,23 +111,21 @@ _STEPS_TOOL = {
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _resolve_week_hours(week_start, avail_week, profile):
-    """Return per-day hours dict for a given week, resolving A/B/custom."""
-    if avail_week is None:
-        return {d: 0.0 for d in _DAYS}
-    if avail_week.week_type == "custom" and avail_week.hours:
-        return {d: avail_week.hours.get(d, 0.0) for d in _DAYS}
-    tmpl = (profile.week_a if avail_week.week_type == "a" else profile.week_b) or {}
+def _resolve_week_hours(week, profile):
+    """Return per-day hours dict for a given TrainingWeek, resolving A/B/custom."""
+    if week.week_type == "custom" and week.avail_override:
+        return {d: week.avail_override.get(d, 0.0) for d in _DAYS}
+    tmpl = (profile.week_a if week.week_type == "a" else profile.week_b) or {}
     return {d: tmpl.get(d, 0.0) for d in _DAYS}
 
 
-def _stream(client, label: str, prompt: str, **kwargs):
+def _stream(client, label: str, prompt: str, model: str = _MODEL, max_tokens: int = _MAX_TOKENS, **kwargs):
     """Log prompt, stream the call, print progress, return final message."""
     print(f"--- {label} ---", flush=True)
     print(prompt, flush=True)
     print("---", flush=True)
     messages = [{"role": "user", "content": prompt}]
-    with client.messages.stream(messages=messages, **kwargs) as stream:
+    with client.messages.stream(messages=messages, model=model, max_tokens=max_tokens, **kwargs) as stream:
         chars = 0
         for event in stream:
             if event.type == "content_block_delta":
@@ -145,17 +146,18 @@ def _stream(client, label: str, prompt: str, **kwargs):
         return stream.get_final_message()
 
 
-def _build_context(goal, profile, pmc_current, avail_weeks_map):
+def _build_context(goal, profile, pmc_current, start_date, start_week_type):
     """Build the shared athlete/goal context block used in both turns."""
     today = datetime.date.today()
-    weeks_to_goal = max(1, (goal.target_date - today).days // 7)
+    weeks_to_goal = max(1, (goal.target_date - start_date).days // 7)
     plan_weeks = min(weeks_to_goal, 20)
 
-    monday = today - datetime.timedelta(days=today.weekday())
     avail_lines = []
     for i in range(plan_weeks):
-        ws = monday + datetime.timedelta(weeks=i)
-        hours = _resolve_week_hours(ws, avail_weeks_map.get(ws), profile)
+        ws = start_date + datetime.timedelta(weeks=i)
+        week_type = "a" if (i % 2 == 0) == (start_week_type == "a") else "b"
+        tmpl = (profile.week_a if week_type == "a" else profile.week_b) or {}
+        hours = {d: tmpl.get(d, 0.0) for d in _DAYS}
         total_h = sum(hours.values())
         day_detail = ", ".join(
             f"{d} {hours[d]:.4g}h" for d in _DAYS if hours.get(d, 0) > 0
@@ -172,15 +174,22 @@ def _build_context(goal, profile, pmc_current, avail_weeks_map):
     }.get(goal.goal_type, goal.goal_type)
 
     wpkg = f"{profile.ftp / profile.weight_kg:.2f}" if profile.ftp and profile.weight_kg else None
-    context = f"""ATHLETE
+    days_until_start = (start_date - today).days
+    start_note = (
+        f" (plan starts in {days_until_start} days on {start_date.strftime('%d %b %Y')}; fitness metrics are as of today)"
+        if days_until_start > 0 else ""
+    )
+    context = f"""TODAY: {today.strftime('%d %b %Y')}
+
+ATHLETE
 - FTP: {profile.ftp or 'unknown'}W{f' ({wpkg} W/kg)' if wpkg else ''}
 - Weight: {f'{profile.weight_kg}kg' if profile.weight_kg else 'unknown'}
 - Level: {profile.athlete_level or 'unknown'}{f' (peak CTL {profile.peak_ctl:.0f})' if profile.peak_ctl else ''}
-- Fitness (CTL): {pmc_current.get('ctl', 0):.1f}  Fatigue (ATL): {pmc_current.get('atl', 0):.1f}  Form (TSB): {pmc_current.get('tsb', 0):.1f}
+- Fitness (CTL): {pmc_current.get('ctl', 0):.1f}  Fatigue (ATL): {pmc_current.get('atl', 0):.1f}  Form (TSB): {pmc_current.get('tsb', 0):.1f}{start_note}
 
 GOAL
 - {goal.title}: {goal_type_desc}
-- {plan_weeks} weeks to plan{f' (of {weeks_to_goal} total)' if weeks_to_goal > plan_weeks else ''}
+- Plan: {plan_weeks} weeks starting {start_date.strftime('%d %b %Y')}{f' (of {weeks_to_goal} total to goal)' if weeks_to_goal > plan_weeks else ''}
 {f'- Notes: {goal.notes}' if goal.notes else ''}
 
 WEEKLY AVAILABILITY (max hours per day — sessions may be shorter)
@@ -195,7 +204,7 @@ TSS REFERENCE: 1h Z2 ≈ 50–60 TSS · 1h threshold ≈ 90–100 TSS · 1h VO2m
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_plan(goal, profile, pmc_current, avail_weeks_map):
+def generate_plan(goal, profile, pmc_current, start_date, start_week_type):
     """
     Two-shot plan generation:
       Turn 1 — coaching rationale (free-form analysis, streamed as text)
@@ -203,7 +212,7 @@ def generate_plan(goal, profile, pmc_current, avail_weeks_map):
 
     Returns dict: {"rationale": str, "summary": str, "weeks": [...]}
     """
-    context, plan_weeks = _build_context(goal, profile, pmc_current, avail_weeks_map)
+    context, plan_weeks = _build_context(goal, profile, pmc_current, start_date, start_week_type)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     # --- Turn 1: rationale ---
@@ -222,8 +231,7 @@ Cover:
 Be specific and quantitative. This rationale will directly drive the structured plan."""
 
     log.info("=== Turn 1: rationale ===")
-    r1 = _stream(client, label="coaching rationale", prompt=rationale_prompt,
-                 model="claude-sonnet-4-6", max_tokens=4000)
+    r1 = _stream(client, label="coaching rationale", prompt=rationale_prompt)
     rationale = next(b.text for b in r1.content if b.type == "text")
     log.info("rationale (%d chars, stop=%s)", len(rationale), r1.stop_reason)
 
@@ -244,7 +252,6 @@ Call the create_plan_skeleton tool."""
 
     log.info("=== Turn 2: skeleton ===")
     r2 = _stream(client, label="plan skeleton", prompt=skeleton_prompt,
-                 model="claude-sonnet-4-6", max_tokens=32000,
                  tools=[_SKELETON_TOOL],
                  tool_choice={"type": "tool", "name": "create_plan_skeleton"})
 
@@ -257,6 +264,65 @@ Call the create_plan_skeleton tool."""
 
     log.info("skeleton: %d weeks, stop=%s", len(tool_use.input.get("weeks", [])), r2.stop_reason)
     return {"rationale": rationale, **tool_use.input}
+
+
+def regenerate_stale_weeks(plan, stale_weeks, profile):
+    """
+    Turn 2 only — reuses plan.rationale as prior context.
+    Revises only the stale weeks and returns {"weeks": [...]} for those week numbers.
+    """
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+
+    stale_nums = sorted(w.week_number for w in stale_weeks)
+
+    avail_lines = []
+    for week in sorted(stale_weeks, key=lambda w: w.week_number):
+        hours = _resolve_week_hours(week, profile)
+        total_h = sum(hours.values())
+        day_detail = ", ".join(
+            f"{d} {hours[d]:.4g}h" for d in _DAYS if hours.get(d, 0) > 0
+        )
+        avail_lines.append(
+            f"  Week {week.week_number}: "
+            f"{total_h:.4g}h total — {day_detail if day_detail else 'no riding'}"
+        )
+
+    wpkg = f"{profile.ftp / profile.weight_kg:.2f}" if profile.ftp and profile.weight_kg else None
+    prompt = f"""You are an expert cycling coach. The athlete's availability has changed for some weeks of their training plan. Revise only those weeks.
+
+ATHLETE
+- FTP: {profile.ftp or 'unknown'}W{f' ({wpkg} W/kg)' if wpkg else ''}
+- Level: {profile.athlete_level or 'unknown'}
+
+ORIGINAL COACHING RATIONALE
+{plan.rationale or plan.summary}
+
+WEEKS TO REVISE: {stale_nums}
+UPDATED AVAILABILITY FOR THESE WEEKS (max hours per day)
+{chr(10).join(avail_lines)}
+
+Rules:
+- Only schedule sessions on days with available hours
+- Available hours per day are the MAXIMUM — session duration must not exceed them, but can be shorter based on training load
+- Keep the same phase and TSS targets unless availability forces a change
+- Return ONLY the revised week numbers listed above — no other weeks
+
+Call the create_plan_skeleton tool."""
+
+    log.info("=== regenerate_stale_weeks: weeks %s ===", stale_nums)
+    response = _stream(client, label=f"regenerate weeks {stale_nums}", prompt=prompt,
+                       tools=[_SKELETON_TOOL],
+                       tool_choice={"type": "tool", "name": "create_plan_skeleton"})
+
+    if response.stop_reason == "max_tokens":
+        raise ValueError("Regenerate response truncated.")
+
+    tool_use = next((b for b in response.content if b.type == "tool_use"), None)
+    if tool_use is None:
+        raise ValueError(f"No tool call in regenerate response. stop_reason={response.stop_reason}")
+
+    log.info("regenerated %d weeks", len(tool_use.input.get("weeks", [])))
+    return tool_use.input
 
 
 def generate_session_steps(session, week, plan, siblings=None):
@@ -305,7 +371,6 @@ Call the create_session_steps tool."""
     log.info("generating steps for session %d: %s", session.id, session.title)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     response = _stream(client, label=f"steps: {session.title}", prompt=prompt,
-                       model="claude-sonnet-4-6", max_tokens=4000,
                        tools=[_STEPS_TOOL],
                        tool_choice={"type": "tool", "name": "create_session_steps"})
 
