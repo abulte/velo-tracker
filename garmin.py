@@ -1,7 +1,6 @@
 """Garmin Connect API client."""
 
 import base64
-import json
 import os
 import tempfile
 from pathlib import Path

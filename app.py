@@ -593,8 +593,6 @@ def create_goal():
         )
         session.add(goal)
         session.commit()
-        session.refresh(goal)
-        goal_id = goal.id
 
     return redirect(url_for("list_goals"))
 
@@ -820,7 +818,7 @@ def save_week_availability(week_id: int):
         stale_weeks = db.exec(
             select(TrainingWeek).where(
                 TrainingWeek.plan_id == week.plan_id,
-                TrainingWeek.stale == True,
+                TrainingWeek.stale,
             )
         ).all()
         plan = db.get(TrainingPlan, week.plan_id)
@@ -850,7 +848,7 @@ def regenerate_stale(plan_id: int):
         stale_weeks = db.exec(
             select(TrainingWeek).where(
                 TrainingWeek.plan_id == plan_id,
-                TrainingWeek.stale == True,
+                TrainingWeek.stale,
             )
         ).all()
         if not stale_weeks:
