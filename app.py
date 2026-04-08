@@ -7,7 +7,7 @@ import markdown as _markdown
 
 import click
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify, render_template, redirect, url_for, request
+from flask import Flask, Response, g, jsonify, render_template, redirect, url_for, request
 from flask_fenrir import create_fenrir_bp, secure_app
 from sqlalchemy import func
 from sqlmodel import Session, col, create_engine, select
@@ -42,8 +42,17 @@ engine = create_engine(app.config["DATABASE_URL"], echo=False)
 app.register_blueprint(create_fenrir_bp(engine))
 secure_app(app)
 
-def get_session():
-    return Session(engine)
+def get_db() -> Session:
+    if "db" not in g:
+        g.db = Session(engine)
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exc: BaseException | None = None) -> None:
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -60,9 +69,9 @@ def cli_sync(since: str):
         else datetime.date.today() - datetime.timedelta(days=7)
     )
     click.echo(f"Syncing from {cutoff}…")
-    with get_session() as session:
-        result = sync_activities(session, cutoff)
-    click.echo(f"Done — synced: {result['synced']}, skipped (non-cycling): {result['skipped']}")
+    session = get_db()
+    result = sync_activities(session, cutoff)
+    click.echo(f"Done — new: {result['created']}, updated: {result['updated']}, skipped (non-cycling): {result['skipped']}")
 
 
 # ---------------------------------------------------------------------------
@@ -143,10 +152,10 @@ def _compute_pmc(activities):
 
 @app.route("/dashboard")
 def dashboard():
-    with get_session() as session:
-        activities = session.exec(
-            select(Activity).order_by(col(Activity.start_date).desc())
-        ).all()
+    session = get_db()
+    activities = session.exec(
+        select(Activity).order_by(col(Activity.start_date).desc())
+    ).all()
 
     by_week = {}
     by_month = {}
@@ -195,10 +204,10 @@ def list_activities():
     if route_id is not None:
         query = query.where(Activity.route_id == route_id)
 
-    with get_session() as session:
-        all_activities = session.exec(select(Activity)).all()
-        activities = session.exec(query).all()
-        routes = session.exec(select(Route).order_by(Route.name)).all()
+    session = get_db()
+    all_activities = session.exec(select(Activity)).all()
+    activities = session.exec(query).all()
+    routes = session.exec(select(Route).order_by(Route.name)).all()
 
     distances = [a.distance / 1000 for a in all_activities if a.distance]
     durations = [a.moving_time // 60 for a in all_activities if a.moving_time]
@@ -227,57 +236,57 @@ def sync_activities_route():
         datetime.date.today() - datetime.timedelta(days=7)
     ).isoformat()
     cutoff = datetime.date.fromisoformat(oldest)
-    with get_session() as session:
-        result = sync_activities(session, cutoff)
+    session = get_db()
+    result = sync_activities(session, cutoff)
     return render_template("activities/_sync_result.html", **result)
 
 
 @app.route("/activities/<string:garmin_id>")
 def show_activity(garmin_id: str):
-    with get_session() as session:
-        activity = session.exec(
-            select(Activity).where(Activity.garmin_id == garmin_id)
-        ).first()
-        if not activity:
-            return "Not found", 404
+    session = get_db()
+    activity = session.exec(
+        select(Activity).where(Activity.garmin_id == garmin_id)
+    ).first()
+    if not activity:
+        return "Not found", 404
     climbs = detect_climbs(activity.polyline) if activity.polyline else []
     return render_template("activities/show.html", activity=activity, climbs=climbs)
 
 
 @app.route("/activities/<string:garmin_id>/streams")
 def activity_streams(garmin_id: str):
-    with get_session() as session:
-        activity = session.exec(
-            select(Activity).where(Activity.garmin_id == garmin_id)
-        ).first()
-        if activity and activity.polyline:
-            return jsonify(activity.polyline)
+    session = get_db()
+    activity = session.exec(
+        select(Activity).where(Activity.garmin_id == garmin_id)
+    ).first()
+    if activity and activity.polyline:
+        return jsonify(activity.polyline)
     return jsonify([])
 
 
 @app.route("/activities/<string:garmin_id>/notes", methods=["POST"])
 def save_notes(garmin_id: str):
-    with get_session() as session:
-        activity = session.exec(
-            select(Activity).where(Activity.garmin_id == garmin_id)
-        ).first()
-        if not activity:
-            return "Not found", 404
-        activity.notes = request.form.get("notes", "").strip() or None
-        activity.updated_at = datetime.datetime.utcnow()
-        session.add(activity)
-        session.commit()
-        session.refresh(activity)
+    session = get_db()
+    activity = session.exec(
+        select(Activity).where(Activity.garmin_id == garmin_id)
+    ).first()
+    if not activity:
+        return "Not found", 404
+    activity.notes = request.form.get("notes", "").strip() or None
+    activity.updated_at = datetime.datetime.utcnow()
+    session.add(activity)
+    session.commit()
+    session.refresh(activity)
     return render_template("activities/_notes.html", activity=activity)
 
 
 @app.route("/heatmap/data")
 def heatmap_data():
     try:
-        with get_session() as session:
-            activities = session.exec(
-                select(Activity).where(col(Activity.polyline).isnot(None))
-            ).all()
+        session = get_db()
+        activities = session.exec(
+            select(Activity).where(col(Activity.polyline).isnot(None))
+        ).all()
 
         # Build heatmap data: coordinate frequency mapping
         coord_frequency = {}
@@ -313,22 +322,22 @@ def heatmap_data():
 
 @app.route("/routes")
 def list_routes():
-    with get_session() as session:
-        routes = session.exec(select(Route).order_by(Route.name)).all()
-        counts = dict(
-            session.exec(
-                select(col(Activity.route_id), func.count(col(Activity.id)))
-                .where(col(Activity.route_id).isnot(None))
-                .group_by(col(Activity.route_id))
-            ).all()
-        )
-        ref_ids = [r.reference_activity_id for r in routes]
-        ref_activities = {
-            a.garmin_id: a
-            for a in session.exec(
-                select(Activity).where(col(Activity.garmin_id).in_(ref_ids))
-            ).all()
-        } if ref_ids else {}
+    session = get_db()
+    routes = session.exec(select(Route).order_by(Route.name)).all()
+    counts = dict(
+        session.exec(
+            select(col(Activity.route_id), func.count(col(Activity.id)))
+            .where(col(Activity.route_id).isnot(None))
+            .group_by(col(Activity.route_id))
+        ).all()
+    )
+    ref_ids = [r.reference_activity_id for r in routes]
+    ref_activities = {
+        a.garmin_id: a
+        for a in session.exec(
+            select(Activity).where(col(Activity.garmin_id).in_(ref_ids))
+        ).all()
+    } if ref_ids else {}
 
     map_data = [
         {"id": r.id, "name": r.name, "pts": ref_activities[r.reference_activity_id].polyline}
@@ -346,14 +355,14 @@ def create_route():
     if not name or not garmin_id:
         return "Missing name or activity id", 400
 
-    with get_session() as session:
-        route = Route(name=name, reference_activity_id=garmin_id)
-        session.add(route)
-        session.commit()
-        session.refresh(route)
-        route_id = route.id
-        count = assign_route_to_all(session, route)
-        session.commit()
+    session = get_db()
+    route = Route(name=name, reference_activity_id=garmin_id)
+    session.add(route)
+    session.commit()
+    session.refresh(route)
+    route_id = route.id
+    count = assign_route_to_all(session, route)
+    session.commit()
 
     is_htmx = request.headers.get("HX-Request")
     if is_htmx:
@@ -370,18 +379,18 @@ def create_route():
 
 @app.route("/routes/<int:route_id>")
 def show_route(route_id: int):
-    with get_session() as session:
-        route = session.get(Route, route_id)
-        if not route:
-            return "Not found", 404
-        activities = session.exec(
-            select(Activity)
-            .where(Activity.route_id == route_id)
-            .order_by(col(Activity.start_date).desc())
-        ).all()
-        ref_activity = session.exec(
-            select(Activity).where(Activity.garmin_id == route.reference_activity_id)
-        ).first()
+    session = get_db()
+    route = session.get(Route, route_id)
+    if not route:
+        return "Not found", 404
+    activities = session.exec(
+        select(Activity)
+        .where(Activity.route_id == route_id)
+        .order_by(col(Activity.start_date).desc())
+    ).all()
+    ref_activity = session.exec(
+        select(Activity).where(Activity.garmin_id == route.reference_activity_id)
+    ).first()
 
     distances = [a.distance / 1000 for a in activities if a.distance]
     tsses = [a.tss for a in activities if a.tss]
@@ -408,59 +417,59 @@ def edit_route(route_id: int):
     if not name:
         return "Name required", 400
 
-    with get_session() as session:
-        route = session.get(Route, route_id)
-        if not route:
-            return "Not found", 404
-        route.name = name
-        session.add(route)
-        session.commit()
+    session = get_db()
+    route = session.get(Route, route_id)
+    if not route:
+        return "Not found", 404
+    route.name = name
+    session.add(route)
+    session.commit()
 
     return f'<h1 id="route-title" class="text-xl font-bold">{name}</h1>'
 
 
 @app.route("/routes/<int:route_id>/delete", methods=["POST"])
 def delete_route(route_id: int):
-    with get_session() as session:
-        activities = session.exec(
-            select(Activity).where(Activity.route_id == route_id)
-        ).all()
-        for a in activities:
-            a.route_id = None
-        session.commit()
+    session = get_db()
+    activities = session.exec(
+        select(Activity).where(Activity.route_id == route_id)
+    ).all()
+    for a in activities:
+        a.route_id = None
+    session.commit()
 
-        route = session.get(Route, route_id)
-        if route:
-            session.delete(route)
-            session.commit()
+    route = session.get(Route, route_id)
+    if route:
+        session.delete(route)
+        session.commit()
 
     return redirect(url_for("list_routes"))
 
 
 @app.route("/routes/<int:route_id>/course", methods=["POST"])
 def save_course_url(route_id: int):
-    with get_session() as session:
-        route = session.get(Route, route_id)
-        if not route:
-            return "Not found", 404
-        route.garmin_course_url = request.form.get("garmin_course_url", "").strip() or None
-        session.add(route)
-        session.commit()
-        session.refresh(route)
+    session = get_db()
+    route = session.get(Route, route_id)
+    if not route:
+        return "Not found", 404
+    route.garmin_course_url = request.form.get("garmin_course_url", "").strip() or None
+    session.add(route)
+    session.commit()
+    session.refresh(route)
 
     return render_template("routes/_course_url.html", route=route)
 
 
 @app.route("/activities/<string:garmin_id>/gpx")
 def activity_gpx(garmin_id: str):
-    with get_session() as session:
-        activity = session.exec(
-            select(Activity).where(Activity.garmin_id == garmin_id)
-        ).first()
-        if not activity:
-            return "Not found", 404
-        if not activity.polyline:
-            return "No polyline for this activity", 404
+    session = get_db()
+    activity = session.exec(
+        select(Activity).where(Activity.garmin_id == garmin_id)
+    ).first()
+    if not activity:
+        return "Not found", 404
+    if not activity.polyline:
+        return "No polyline for this activity", 404
 
     name = request.args.get("name", activity.name)
     pts = []
@@ -503,29 +512,29 @@ _DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
-    with get_session() as session:
-        p = session.get(UserProfile, 1)
+    session = get_db()
+    p = session.get(UserProfile, 1)
 
-        if request.method == "POST":
-            ftp = request.form.get("ftp", type=int)
-            week_a = {d: request.form.get(f"a_{d}", type=float) or 0.0 for d in _DAYS}
-            week_b = {d: request.form.get(f"b_{d}", type=float) or 0.0 for d in _DAYS}
-            icu_athlete_id = request.form.get("icu_athlete_id", "").strip() or None
-            icu_api_key = request.form.get("icu_api_key", "").strip() or None
-            if p is None:
-                p = UserProfile(id=1, ftp=ftp, week_a=week_a, week_b=week_b,
-                                icu_athlete_id=icu_athlete_id, icu_api_key=icu_api_key)
-            else:
-                p.ftp = ftp
-                p.week_a = week_a
-                p.week_b = week_b
-                p.icu_athlete_id = icu_athlete_id
-                if icu_api_key:
-                    p.icu_api_key = icu_api_key
-                p.updated_at = datetime.datetime.utcnow()
-            session.add(p)
-            session.commit()
-            return redirect(url_for("profile"))
+    if request.method == "POST":
+        ftp = request.form.get("ftp", type=int)
+        week_a = {d: request.form.get(f"a_{d}", type=float) or 0.0 for d in _DAYS}
+        week_b = {d: request.form.get(f"b_{d}", type=float) or 0.0 for d in _DAYS}
+        icu_athlete_id = request.form.get("icu_athlete_id", "").strip() or None
+        icu_api_key = request.form.get("icu_api_key", "").strip() or None
+        if p is None:
+            p = UserProfile(id=1, ftp=ftp, week_a=week_a, week_b=week_b,
+                            icu_athlete_id=icu_athlete_id, icu_api_key=icu_api_key)
+        else:
+            p.ftp = ftp
+            p.week_a = week_a
+            p.week_b = week_b
+            p.icu_athlete_id = icu_athlete_id
+            if icu_api_key:
+                p.icu_api_key = icu_api_key
+            p.updated_at = datetime.datetime.utcnow()
+        session.add(p)
+        session.commit()
+        return redirect(url_for("profile"))
 
     return render_template("profile.html", profile=p,
                            days=_DAYS, day_labels=_DAY_LABELS)
@@ -533,34 +542,34 @@ def profile():
 
 @app.route("/profile/sync-icu", methods=["POST"])
 def sync_icu():
-    with get_session() as session:
-        p = session.get(UserProfile, 1)
-        if not p or not p.icu_athlete_id or not p.icu_api_key:
-            return render_template("profile/_icu.html", profile=p,
-                                   error="Set your intervals.icu athlete ID and API key first.")
-        try:
-            data = _sync_icu(p.icu_athlete_id, p.icu_api_key)
-        except Exception as e:
-            return render_template("profile/_icu.html", profile=p, error=str(e))
-        for k, v in data.items():
-            setattr(p, k, v)
-        # Refine level using profile FTP + synced weight
-        if p.ftp and p.weight_kg and p.peak_ctl:
-            p.athlete_level = _classify_level(p.peak_ctl, p.ftp / p.weight_kg)
-        p.updated_at = datetime.datetime.utcnow()
-        session.add(p)
-        session.commit()
-        return render_template("profile/_icu.html", profile=p)
+    session = get_db()
+    p = session.get(UserProfile, 1)
+    if not p or not p.icu_athlete_id or not p.icu_api_key:
+        return render_template("profile/_icu.html", profile=p,
+                               error="Set your intervals.icu athlete ID and API key first.")
+    try:
+        data = _sync_icu(p.icu_athlete_id, p.icu_api_key)
+    except Exception as e:
+        return render_template("profile/_icu.html", profile=p, error=str(e))
+    for k, v in data.items():
+        setattr(p, k, v)
+    # Refine level using profile FTP + synced weight
+    if p.ftp and p.weight_kg and p.peak_ctl:
+        p.athlete_level = _classify_level(p.peak_ctl, p.ftp / p.weight_kg)
+    p.updated_at = datetime.datetime.utcnow()
+    session.add(p)
+    session.commit()
+    return render_template("profile/_icu.html", profile=p)
 
 
 
 @app.route("/goals")
 def list_goals():
-    with get_session() as session:
-        goals = session.exec(select(Goal).order_by(col(Goal.created_at).desc())).all()
-        active_plans = {p.goal_id: p.id for p in session.exec(
-            select(TrainingPlan).where(TrainingPlan.is_active == True)  # noqa: E712
-        ).all()}
+    session = get_db()
+    goals = session.exec(select(Goal).order_by(col(Goal.created_at).desc())).all()
+    active_plans = {p.goal_id: p.id for p in session.exec(
+        select(TrainingPlan).where(TrainingPlan.is_active == True)  # noqa: E712
+    ).all()}
 
     today = datetime.date.today()
     next_monday = today + datetime.timedelta(days=-today.weekday(), weeks=1) if today.weekday() != 0 else today
@@ -582,156 +591,156 @@ def create_goal():
 
     target_date = datetime.date.fromisoformat(target_date_str)
 
-    with get_session() as session:
-        goal = Goal(
-            title=title,
-            goal_type=goal_type,
-            target_date=target_date,
-            target_ftp=target_ftp if goal_type == "ftp" else None,
-            notes=notes,
-            is_active=False,
-        )
-        session.add(goal)
-        session.commit()
+    session = get_db()
+    goal = Goal(
+        title=title,
+        goal_type=goal_type,
+        target_date=target_date,
+        target_ftp=target_ftp if goal_type == "ftp" else None,
+        notes=notes,
+        is_active=False,
+    )
+    session.add(goal)
+    session.commit()
 
     return redirect(url_for("list_goals"))
 
 
 @app.route("/goals/<int:goal_id>/activate", methods=["POST"])
 def activate_goal(goal_id: int):
-    with get_session() as session:
-        # Deactivate all goals first
-        all_goals = session.exec(select(Goal)).all()
-        for g in all_goals:
-            g.is_active = False
-            session.add(g)
-        # Activate the selected one
-        goal = session.get(Goal, goal_id)
-        if not goal:
-            return "Not found", 404
-        goal.is_active = True
-        session.add(goal)
-        session.commit()
+    session = get_db()
+    # Deactivate all goals first
+    all_goals = session.exec(select(Goal)).all()
+    for goal_item in all_goals:
+        goal_item.is_active = False
+        session.add(goal_item)
+    # Activate the selected one
+    goal = session.get(Goal, goal_id)
+    if not goal:
+        return "Not found", 404
+    goal.is_active = True
+    session.add(goal)
+    session.commit()
 
     return redirect(url_for("list_goals"))
 
 
 @app.route("/goals/<int:goal_id>/delete", methods=["POST"])
 def delete_goal(goal_id: int):
-    with get_session() as session:
-        goal = session.get(Goal, goal_id)
-        if goal:
-            session.delete(goal)
-            session.commit()
+    session = get_db()
+    goal = session.get(Goal, goal_id)
+    if goal:
+        session.delete(goal)
+        session.commit()
 
     return redirect(url_for("list_goals"))
 
 
 @app.route("/goals/<int:goal_id>/generate-plan", methods=["POST"])
 def generate_plan(goal_id: int):
-    with get_session() as session:
-        goal = session.get(Goal, goal_id)
-        if not goal:
-            return "Not found", 404
-        profile = session.get(UserProfile, 1)
-        if not profile or not profile.ftp:
-            return render_template("goals/_actions.html", goal=goal, plan_id=None,
-                                   error="Set your FTP in Profile before generating a plan.")
+    session = get_db()
+    goal = session.get(Goal, goal_id)
+    if not goal:
+        return "Not found", 404
+    profile = session.get(UserProfile, 1)
+    if not profile or not profile.ftp:
+        return render_template("goals/_actions.html", goal=goal, plan_id=None,
+                               error="Set your FTP in Profile before generating a plan.")
 
-        # Parse modal params
-        start_date_str = request.form.get("start_date")
-        start_date = datetime.date.fromisoformat(start_date_str) if start_date_str else datetime.date.today()
-        start_date -= datetime.timedelta(days=start_date.weekday())  # snap to Monday
-        start_week_type = request.form.get("start_week_type", "a")
+    # Parse modal params
+    start_date_str = request.form.get("start_date")
+    start_date = datetime.date.fromisoformat(start_date_str) if start_date_str else datetime.date.today()
+    start_date -= datetime.timedelta(days=start_date.weekday())  # snap to Monday
+    start_week_type = request.form.get("start_week_type", "a")
 
-        # Current PMC values
-        activities = session.exec(select(Activity).order_by(col(Activity.start_date).desc())).all()
-        pmc = _compute_pmc(list(activities))
-        pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
+    # Current PMC values
+    activities = session.exec(select(Activity).order_by(col(Activity.start_date).desc())).all()
+    pmc = _compute_pmc(list(activities))
+    pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
 
-        # Call Claude
-        try:
-            plan_data = _generate_plan(goal, profile, pmc_current, start_date, start_week_type)
-            app.logger.info("plan_data keys: %s, weeks: %d", list(plan_data.keys()), len(plan_data.get("weeks", [])))
-        except Exception as e:
-            app.logger.exception("generate_plan failed")
-            return render_template("goals/_actions.html", goal=goal, plan_id=None, error=str(e))
+    # Call Claude
+    try:
+        plan_data = _generate_plan(goal, profile, pmc_current, start_date, start_week_type)
+        app.logger.info("plan_data keys: %s, weeks: %d", list(plan_data.keys()), len(plan_data.get("weeks", [])))
+    except Exception as e:
+        app.logger.exception("generate_plan failed")
+        return render_template("goals/_actions.html", goal=goal, plan_id=None, error=str(e))
 
-        # Delete existing plans for this goal
-        for p in session.exec(select(TrainingPlan).where(TrainingPlan.goal_id == goal_id)).all():
-            _delete_plan(p, session)
-        session.flush()
+    # Delete existing plans for this goal
+    for p in session.exec(select(TrainingPlan).where(TrainingPlan.goal_id == goal_id)).all():
+        _delete_plan(p, session)
+    session.flush()
 
-        # Store new plan
-        plan = TrainingPlan(
-            goal_id=goal_id,
-            start_date=start_date,
-            summary=plan_data["summary"],
-            rationale=plan_data.get("rationale"),
-            is_active=True,
+    # Store new plan
+    plan = TrainingPlan(
+        goal_id=goal_id,
+        start_date=start_date,
+        summary=plan_data["summary"],
+        rationale=plan_data.get("rationale"),
+        is_active=True,
+    )
+    session.add(plan)
+    session.flush()
+    assert plan.id is not None
+
+    for week_data in plan_data["weeks"]:
+        n = week_data["week_number"]
+        week_type = "a" if (n % 2 == 1) == (start_week_type == "a") else "b"
+        week_start = start_date + datetime.timedelta(weeks=n - 1)
+        week = TrainingWeek(
+            plan_id=plan.id,
+            week_number=n,
+            phase=week_data["phase"],
+            tss_target=week_data["tss_target"],
+            description=week_data["description"],
+            week_start=week_start,
+            week_type=week_type,
         )
-        session.add(plan)
+        session.add(week)
         session.flush()
-        assert plan.id is not None
+        assert week.id is not None
+        for s in week_data.get("sessions", []):
+            session.add(TrainingSession(
+                week_id=week.id,
+                day_of_week=s["day_of_week"],
+                session_type=s["session_type"],
+                tss_target=s["tss_target"],
+                duration_min=s["duration_min"],
+                title=s["title"],
+                notes=s.get("notes"),
+            ))
 
-        for week_data in plan_data["weeks"]:
-            n = week_data["week_number"]
-            week_type = "a" if (n % 2 == 1) == (start_week_type == "a") else "b"
-            week_start = start_date + datetime.timedelta(weeks=n - 1)
-            week = TrainingWeek(
-                plan_id=plan.id,
-                week_number=n,
-                phase=week_data["phase"],
-                tss_target=week_data["tss_target"],
-                description=week_data["description"],
-                week_start=week_start,
-                week_type=week_type,
-            )
-            session.add(week)
-            session.flush()
-            assert week.id is not None
-            for s in week_data.get("sessions", []):
-                session.add(TrainingSession(
-                    week_id=week.id,
-                    day_of_week=s["day_of_week"],
-                    session_type=s["session_type"],
-                    tss_target=s["tss_target"],
-                    duration_min=s["duration_min"],
-                    title=s["title"],
-                    notes=s.get("notes"),
-                ))
+    session.commit()
+    plan_id = plan.id
 
-        session.commit()
-        plan_id = plan.id
-
-        return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
+    return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
 
 
 @app.route("/plan/<int:plan_id>")
 def show_plan(plan_id: int):
-    with get_session() as session:
-        plan = session.get(TrainingPlan, plan_id)
-        if not plan:
-            return "Not found", 404
-        goal = session.get(Goal, plan.goal_id)
-        profile = session.get(UserProfile, 1)
-        weeks = session.exec(
-            select(TrainingWeek)
-            .where(TrainingWeek.plan_id == plan_id)
-            .order_by(col(TrainingWeek.week_number))
-        ).all()
+    session = get_db()
+    plan = session.get(TrainingPlan, plan_id)
+    if not plan:
+        return "Not found", 404
+    goal = session.get(Goal, plan.goal_id)
+    profile = session.get(UserProfile, 1)
+    weeks = session.exec(
+        select(TrainingWeek)
+        .where(TrainingWeek.plan_id == plan_id)
+        .order_by(col(TrainingWeek.week_number))
+    ).all()
 
-        # Pre-group sessions by week_id → day_of_week → [sessions]
-        sessions_by_week = {}
-        for week in weeks:
-            by_day = {d: [] for d in _DAYS}
-            for s in session.exec(
-                select(TrainingSession).where(TrainingSession.week_id == week.id)
-            ).all():
-                by_day[s.day_of_week].append(s)
-            sessions_by_week[week.id] = by_day
+    # Pre-group sessions by week_id → day_of_week → [sessions]
+    sessions_by_week = {}
+    for week in weeks:
+        by_day = {d: [] for d in _DAYS}
+        for s in session.exec(
+            select(TrainingSession).where(TrainingSession.week_id == week.id)
+        ).all():
+            by_day[s.day_of_week].append(s)
+        sessions_by_week[week.id] = by_day
 
-        avail_by_week = {week.id: _resolve_week_hours(week, profile) for week in weeks}
+    avail_by_week = {week.id: _resolve_week_hours(week, profile) for week in weeks}
 
     # Determine current week number in plan
     today = datetime.date.today()
@@ -758,70 +767,70 @@ def show_plan(plan_id: int):
 
 @app.route("/plan/sessions/<int:session_id>")
 def show_session(session_id: int):
-    with get_session() as session:
-        s = session.get(TrainingSession, session_id)
-        if not s:
-            return "Not found", 404
-        week = session.get(TrainingWeek, s.week_id)
-        if not week:
-            return "Not found", 404
-        plan = session.get(TrainingPlan, week.plan_id)
-        if not plan:
-            return "Not found", 404
-        goal = session.get(Goal, plan.goal_id)
-        profile = session.get(UserProfile, 1)
+    session = get_db()
+    s = session.get(TrainingSession, session_id)
+    if not s:
+        return "Not found", 404
+    week = session.get(TrainingWeek, s.week_id)
+    if not week:
+        return "Not found", 404
+    plan = session.get(TrainingPlan, week.plan_id)
+    if not plan:
+        return "Not found", 404
+    goal = session.get(Goal, plan.goal_id)
+    profile = session.get(UserProfile, 1)
 
     return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta)
 
 
 @app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])
 def regenerate_session_steps(session_id: int):
-    with get_session() as session:
-        s = session.get(TrainingSession, session_id)
-        if not s:
-            return "Not found", 404
-        week = session.get(TrainingWeek, s.week_id)
-        if not week:
-            return "Not found", 404
-        plan = session.get(TrainingPlan, week.plan_id)
-        if not plan:
-            return "Not found", 404
-        siblings = session.exec(
-            select(TrainingSession).where(
-                TrainingSession.week_id == s.week_id,
-                TrainingSession.id != s.id,
-            )
-        ).all()
-        steps = generate_session_steps(s, week, plan, siblings=siblings)
-        assert isinstance(steps, list)
-        s.steps = steps
-        session.add(s)
-        session.commit()
+    session = get_db()
+    s = session.get(TrainingSession, session_id)
+    if not s:
+        return "Not found", 404
+    week = session.get(TrainingWeek, s.week_id)
+    if not week:
+        return "Not found", 404
+    plan = session.get(TrainingPlan, week.plan_id)
+    if not plan:
+        return "Not found", 404
+    siblings = session.exec(
+        select(TrainingSession).where(
+            TrainingSession.week_id == s.week_id,
+            TrainingSession.id != s.id,
+        )
+    ).all()
+    steps = generate_session_steps(s, week, plan, siblings=siblings)
+    assert isinstance(steps, list)
+    s.steps = steps
+    session.add(s)
+    session.commit()
 
     return redirect(url_for("show_session", session_id=session_id))
 
 
 @app.route("/plan/weeks/<int:week_id>/availability", methods=["POST"])
 def save_week_availability(week_id: int):
-    with get_session() as db:
-        week = db.get(TrainingWeek, week_id)
-        if not week:
-            return "Not found", 404
+    db = get_db()
+    week = db.get(TrainingWeek, week_id)
+    if not week:
+        return "Not found", 404
 
-        hours = {d: request.form.get(f"h_{d}", type=float) or 0.0 for d in _DAYS}
-        week.week_type = "custom"
-        week.avail_override = hours
-        week.stale = True
-        db.add(week)
-        db.commit()
+    hours = {d: request.form.get(f"h_{d}", type=float) or 0.0 for d in _DAYS}
+    week.week_type = "custom"
+    week.avail_override = hours
+    week.stale = True
+    db.add(week)
+    db.commit()
 
-        stale_weeks = db.exec(
-            select(TrainingWeek).where(
-                TrainingWeek.plan_id == week.plan_id,
-                TrainingWeek.stale,
-            )
-        ).all()
-        plan = db.get(TrainingPlan, week.plan_id)
+    stale_weeks = db.exec(
+        select(TrainingWeek).where(
+            TrainingWeek.plan_id == week.plan_id,
+            TrainingWeek.stale,
+        )
+    ).all()
+    plan = db.get(TrainingPlan, week.plan_id)
 
     badge_html = render_template("plan/_week_stale_badge.html", week=week)
     banner_html = render_template("plan/_stale_banner.html", plan=plan, stale_weeks=stale_weeks)
@@ -840,72 +849,72 @@ def save_week_availability(week_id: int):
 
 @app.route("/plan/<int:plan_id>/regenerate-stale", methods=["POST"])
 def regenerate_stale(plan_id: int):
-    with get_session() as db:
-        plan = db.get(TrainingPlan, plan_id)
-        if not plan:
-            return "Not found", 404
-        profile = db.get(UserProfile, 1)
-        stale_weeks = db.exec(
-            select(TrainingWeek).where(
-                TrainingWeek.plan_id == plan_id,
-                TrainingWeek.stale,
-            )
-        ).all()
-        if not stale_weeks:
-            return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
+    db = get_db()
+    plan = db.get(TrainingPlan, plan_id)
+    if not plan:
+        return "Not found", 404
+    profile = db.get(UserProfile, 1)
+    stale_weeks = db.exec(
+        select(TrainingWeek).where(
+            TrainingWeek.plan_id == plan_id,
+            TrainingWeek.stale,
+        )
+    ).all()
+    if not stale_weeks:
+        return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
 
-        try:
-            revised = _regenerate_stale_weeks(plan, stale_weeks, profile)
-        except Exception as e:
-            app.logger.exception("regenerate_stale_weeks failed")
-            return f"Error: {e}", 500
+    try:
+        revised = _regenerate_stale_weeks(plan, stale_weeks, profile)
+    except Exception as e:
+        app.logger.exception("regenerate_stale_weeks failed")
+        return f"Error: {e}", 500
 
-        revised_weeks = revised.get("weeks", [])
-        assert isinstance(revised_weeks, list)
-        revised_by_num = {w["week_number"]: w for w in revised_weeks}
-        for week in stale_weeks:
-            assert week.id is not None
-            new_data = revised_by_num.get(week.week_number)
-            if not new_data:
-                continue
-            for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
-                db.delete(s)
-            for s in new_data.get("sessions", []):
-                db.add(TrainingSession(
-                    week_id=week.id,
-                    day_of_week=s["day_of_week"],
-                    session_type=s["session_type"],
-                    tss_target=s["tss_target"],
-                    duration_min=s["duration_min"],
-                    title=s["title"],
-                    notes=s.get("notes"),
-                ))
-            week.tss_target = new_data["tss_target"]
-            week.phase = new_data["phase"]
-            week.description = new_data["description"]
-            week.stale = False
-            db.add(week)
-        db.commit()
+    revised_weeks = revised.get("weeks", [])
+    assert isinstance(revised_weeks, list)
+    revised_by_num = {w["week_number"]: w for w in revised_weeks}
+    for week in stale_weeks:
+        assert week.id is not None
+        new_data = revised_by_num.get(week.week_number)
+        if not new_data:
+            continue
+        for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+            db.delete(s)
+        for s in new_data.get("sessions", []):
+            db.add(TrainingSession(
+                week_id=week.id,
+                day_of_week=s["day_of_week"],
+                session_type=s["session_type"],
+                tss_target=s["tss_target"],
+                duration_min=s["duration_min"],
+                title=s["title"],
+                notes=s.get("notes"),
+            ))
+        week.tss_target = new_data["tss_target"]
+        week.phase = new_data["phase"]
+        week.description = new_data["description"]
+        week.stale = False
+        db.add(week)
+    db.commit()
 
     return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
 
 
 @app.route("/plan/<int:plan_id>/delete", methods=["POST"])
 def delete_plan(plan_id: int):
-    with get_session() as db:
-        plan = db.get(TrainingPlan, plan_id)
-        if not plan:
-            return "Not found", 404
-        _delete_plan(plan, db)
-        db.commit()
+    db = get_db()
+    plan = db.get(TrainingPlan, plan_id)
+    if not plan:
+        return "Not found", 404
+    _delete_plan(plan, db)
+    db.commit()
     return redirect(url_for("list_goals"))
 
 
 @app.route("/health")
 def health():
     try:
-        with get_session() as session:
-            session.exec(select(Activity).limit(1)).first()
+        session = get_db()
+        session.exec(select(Activity).limit(1)).first()
         return {"status": "healthy"}, 200
     except Exception as e:
         return {"status": "unhealthy", "error": str(e)}, 500
