@@ -15,6 +15,7 @@ from sqlmodel import Session, col, create_engine, select
 from cli import sync_activities
 from climbs import detect_climbs
 from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours
+from config import ZONE_BOUNDARIES
 from icu import sync_athlete as _sync_icu, _classify_level
 from models import Activity, Route, UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession
 from routes import assign_route_to_all
@@ -27,9 +28,19 @@ app = Flask("velo-tracker")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
 
 @app.template_filter("markdown")
-def markdown_filter(text):
+def markdown_filter(text: str) -> str:
     from markupsafe import Markup
-    return Markup(_markdown.markdown(text or "", extensions=["nl2br", "tables"]))
+    return str(Markup(_markdown.markdown(text or "", extensions=["nl2br", "tables"])))
+
+
+@app.template_filter("fmt_dur")
+def fmt_dur_filter(seconds: int) -> str:
+    """Format a duration in seconds as e.g. '1h30' or '45min'."""
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    if h:
+        return f"{h}h{m:02d}" if m else f"{h}h"
+    return f"{m}min"
 
 database_url = os.getenv("DATABASE_URL", "")
 if database_url.startswith("postgres://"):
@@ -765,6 +776,24 @@ def show_plan(plan_id: int):
     )
 
 
+def _steps_duration(steps: list[dict[str, object]]) -> int:
+    total = 0
+    for step in steps:
+        if step.get("type") == "set":
+            inner_steps = step.get("steps")
+            repeat = step.get("repeat")
+            if isinstance(inner_steps, list) and isinstance(repeat, int):
+                inner = sum(
+                    int(i["duration_sec"])
+                    for i in inner_steps
+                    if isinstance(i, dict) and isinstance(i.get("duration_sec"), int)
+                )
+                total += inner * repeat
+        elif isinstance(dur_sec := step.get("duration_sec"), int):
+            total += dur_sec
+    return total
+
+
 @app.route("/plan/sessions/<int:session_id>")
 def show_session(session_id: int):
     session = get_db()
@@ -780,7 +809,11 @@ def show_session(session_id: int):
     goal = session.get(Goal, plan.goal_id)
     profile = session.get(UserProfile, 1)
 
-    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta)
+    actual_sec: int | None = None
+    if s.steps:
+        actual_sec = _steps_duration(s.steps)
+
+    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta, zone_boundaries=ZONE_BOUNDARIES, actual_sec=actual_sec)
 
 
 @app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])

@@ -3,13 +3,14 @@ import datetime
 import logging
 import os
 from pathlib import Path
-from typing import TypedDict, NotRequired
+from typing import TypedDict, NotRequired, cast
 
 import anthropic
+from anthropic.types import MessageParam, ToolParam
 from jinja2 import Environment, FileSystemLoader
 from pydantic import TypeAdapter
 
-from config import ANTHROPIC_MODEL, ANTHROPIC_MAX_TOKENS
+from config import ANTHROPIC_MODEL, ANTHROPIC_MAX_TOKENS, ZONE_BOUNDARIES
 
 _prompts = Environment(
     loader=FileSystemLoader(Path(__file__).parent / "prompts"),
@@ -62,6 +63,25 @@ _steps_adapter: TypeAdapter[list[dict[str, object]]] = TypeAdapter(list[dict[str
 
 
 # ---------------------------------------------------------------------------
+# Zone helpers — derived from ZONE_BOUNDARIES, used in tool schema + prompts
+# ---------------------------------------------------------------------------
+
+def _fmt_zone(name: str, lo: float | None, hi: float | None) -> str:
+    lo_str = f"{int(lo * 100)}%" if lo is not None else None
+    hi_str = f"{int(hi * 100)}%" if hi is not None else None
+    if lo_str is None and hi_str is not None:
+        return f"{name.upper()} <{hi_str}"
+    if hi_str is None and lo_str is not None:
+        return f"{name.upper()} >{lo_str}"
+    if lo_str is not None and hi_str is not None:
+        return f"{name.upper()} {lo_str}–{hi_str}"
+    return name.upper()
+
+
+_ZONE_ENUM: list[str] = list(ZONE_BOUNDARIES.keys())
+_ZONE_DESC: str = " · ".join(_fmt_zone(k, v[0], v[1]) for k, v in ZONE_BOUNDARIES.items())
+
+# ---------------------------------------------------------------------------
 # Tool schemas
 # ---------------------------------------------------------------------------
 
@@ -100,9 +120,9 @@ _SKELETON_TOOL = {
                                     "tss_target": {"type": "integer"},
                                     "duration_min": {"type": "integer"},
                                     "title": {"type": "string"},
-                                    "notes": {"type": "string"},
+                                    "notes": {"type": "string", "description": "One sentence describing the session's purpose and feel — no zones, no interval prescriptions, no power targets. Describe intent and feel only (e.g. 'First structured effort of the block, legs should feel comfortably challenged')."},
                                 },
-                                "required": ["day_of_week", "session_type", "tss_target", "duration_min", "title"],
+                                "required": ["day_of_week", "session_type", "tss_target", "duration_min", "title", "notes"],
                             },
                         },
                     },
@@ -122,33 +142,35 @@ _STEP_SCHEMA = {
             "enum": ["warmup", "interval", "recovery", "cooldown", "steady"],
         },
         "duration_sec": {"type": "integer"},
-        "power_low":  {"type": "number", "description": "% of FTP, e.g. 0.95"},
-        "power_high": {"type": "number", "description": "% of FTP, e.g. 1.05"},
+        "zone": {
+            "type": "string",
+            "enum": _ZONE_ENUM,
+            "description": f"Coggan power zone: {_ZONE_DESC}",
+        },
         "cadence":    {"type": "integer", "description": "Target RPM (optional)"},
         "description": {"type": "string", "description": "Brief cue for this step"},
     },
-    "required": ["type", "duration_sec", "power_low", "power_high"],
+    "required": ["type", "duration_sec", "zone"],
 }
 
 _SET_SCHEMA = {
     "type": "object",
     "properties": {
         "type": {"type": "string", "enum": ["set"]},
-        "repeat": {"type": "integer", "description": "Number of times to repeat the set"},
+        "repeat": {"type": "integer", "minimum": 2, "description": "Number of times to repeat the set — must be ≥ 2"},
         "steps": {"type": "array", "items": _STEP_SCHEMA},
     },
     "required": ["type", "repeat", "steps"],
 }
 
-_STEPS_TOOL = {
-    "name": "create_session_steps",
-    "description": "Create structured workout steps for a single training session.",
+_CALC_TOOL = {
+    "name": "calculate_duration",
+    "description": "Calculate the total duration of a proposed step list and check it against the target. Call this with your steps; if ok is true the steps will be saved as-is.",
     "input_schema": {
         "type": "object",
         "properties": {
             "steps": {
                 "type": "array",
-                "description": "Top-level steps. Use type='set' with nested steps for repeated interval+recovery blocks.",
                 "items": {"anyOf": [_STEP_SCHEMA, _SET_SCHEMA]},
             },
         },
@@ -159,6 +181,24 @@ _STEPS_TOOL = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _calc_steps_duration(steps: list[dict[str, object]]) -> int:
+    """Compute total duration in seconds for a list of step dicts."""
+    total = 0
+    for step in steps:
+        if step.get("type") == "set":
+            inner = step.get("steps")
+            repeat = step.get("repeat")
+            if isinstance(inner, list) and isinstance(repeat, int):
+                inner_sec = sum(
+                    int(s["duration_sec"]) for s in inner
+                    if isinstance(s, dict) and isinstance(s.get("duration_sec"), int)
+                )
+                total += inner_sec * repeat
+        elif isinstance(dur := step.get("duration_sec"), int):
+            total += dur
+    return total
+
 
 def _resolve_week_hours(week, profile):
     """Return per-day hours dict for a given TrainingWeek, resolving A/B/custom."""
@@ -244,7 +284,7 @@ GOAL
 WEEKLY AVAILABILITY (max hours per day — sessions may be shorter)
 {chr(10).join(avail_lines)}
 
-POWER ZONES (% FTP): Z1 <55%  Z2 55–75%  Z3 75–90%  Z4 90–105%  Z5 105–120%
+POWER ZONES (% FTP): {_ZONE_DESC}
 TSS REFERENCE: 1h Z2 ≈ 50–60 TSS · 1h threshold ≈ 90–100 TSS · 1h VO2max ≈ 110–120 TSS"""
 
     return context, plan_weeks
@@ -365,33 +405,69 @@ def generate_session_steps(session, week, plan, siblings=None) -> list[dict[str,
     else:
         sibling_block = ""
 
+    duration_sec = session.duration_min * 60
+    warmup_sec = min(600, duration_sec // 6)
+    cooldown_sec = min(600, duration_sec // 6)
+    main_set_sec = duration_sec - warmup_sec - cooldown_sec
+
     prompt = _prompts.get_template("session_steps.j2").render(
         title=session.title,
         session_type=session.session_type,
         duration_min=session.duration_min,
-        duration_sec=session.duration_min * 60,
+        duration_sec=duration_sec,
+        warmup_sec=warmup_sec,
+        cooldown_sec=cooldown_sec,
+        main_set_sec=main_set_sec,
         tss_target=session.tss_target,
         day_of_week=session.day_of_week,
         week_number=week.week_number,
         phase=week.phase,
         week_description=week.description,
+        notes=session.notes,
         sibling_block=sibling_block,
         plan_context=plan.rationale or plan.summary,
     )
 
-    log.info("generating steps for session %d: %s", session.id, session.title)
+    log.info("generating steps for session %d: %s (%ds: %ds warmup, %ds main, %ds cooldown)",
+             session.id, session.title, duration_sec, warmup_sec, main_set_sec, cooldown_sec)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    response = _stream(client, label=f"steps: {session.title}", prompt=prompt,
-                       tools=[_STEPS_TOOL],
-                       tool_choice={"type": "tool", "name": "create_session_steps"})
 
-    if response.stop_reason == "max_tokens":
-        raise ValueError("Steps response truncated.")
+    _tools = cast(list[ToolParam], [_CALC_TOOL])
+    messages: list[MessageParam] = [{"role": "user", "content": prompt}]
 
-    tool_use = next((b for b in response.content if b.type == "tool_use"), None)
-    if tool_use is None:
-        raise ValueError(f"No tool call in steps response. stop_reason={response.stop_reason}")
+    for turn in range(6):
+        print(f"--- steps: {session.title} (turn {turn + 1}) ---", flush=True)
+        with client.messages.stream(
+            model=ANTHROPIC_MODEL,
+            max_tokens=ANTHROPIC_MAX_TOKENS,
+            tools=_tools,
+            tool_choice={"type": "auto"},
+            messages=messages,
+        ) as stream:
+            response = stream.get_final_message()
+        print(f"  stop={response.stop_reason} tools={[b.name for b in response.content if b.type == 'tool_use']}", flush=True)
 
-    steps = _steps_adapter.validate_python(tool_use.input.get("steps", []))
-    log.info("generated %d steps for session %d", len(steps), session.id)
-    return steps
+        if response.stop_reason == "max_tokens":
+            raise ValueError("Steps response truncated.")
+
+        calc_call = next((b for b in response.content if b.type == "tool_use" and b.name == "calculate_duration"), None)
+        if calc_call is None:
+            raise ValueError(f"No tool call in steps response. stop_reason={response.stop_reason}")
+
+        preview = _steps_adapter.validate_python(calc_call.input.get("steps", []))
+        total = _calc_steps_duration(preview)
+        delta = total - duration_sec
+        ok = abs(delta) <= 30
+        result = {"total_sec": total, "target_sec": duration_sec, "delta_sec": delta, "ok": ok}
+        print(f"  calculate_duration: {total}s (target {duration_sec}s, delta {delta:+d}s)", flush=True)
+
+        if ok:
+            return preview
+
+        messages = cast(list[MessageParam], [
+            *messages,
+            {"role": "assistant", "content": list(response.content)},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": calc_call.id, "content": str(result)}]},
+        ])
+
+    raise ValueError("generate_session_steps: exceeded max turns")

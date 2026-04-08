@@ -7,6 +7,7 @@ SESSION
 - TSS target: {{ tss_target }}
 - Day: {{ day_of_week }}, Week {{ week_number }} ({{ phase }} phase)
 - Week focus: {{ week_description }}
+{% if notes %}- Session intent: {{ notes }}{% endif %}
 {% if sibling_block %}
 {{ sibling_block }}
 {% endif %}
@@ -14,12 +15,12 @@ SESSION
 PLAN CONTEXT
 {{ plan_context }}
 
-RULES
-- power_low / power_high are fractions of FTP (e.g. 0.95 = 95% FTP)
-- Use type="set" with repeat > 1 for repeated interval+recovery blocks (e.g. 3×(8min interval + 4min recovery) = one set with repeat=3 containing two steps)
-- Warmup and cooldown are plain steps (not sets), repeat is always 1
-- Total duration must equal {{ duration_sec }} seconds (±60s): sum each plain step's duration_sec, and each set's (repeat × sum of inner step durations)
-- Add a brief description cue to each step
+STRUCTURE (must total {{ duration_sec }}s exactly)
+- Warmup: {{ warmup_sec }}s
+- Main set: {{ main_set_sec }}s — design this part
+- Cooldown: {{ cooldown_sec }}s
 
-TOOL
-Call the create_session_steps tool.
+RULES
+- Use the zone field (z1–z6) for intensity. Zones are defined in POWER ZONES above.
+- If the main set uses repeated intervals: repeat × (interval_sec + recovery_sec) = {{ main_set_sec }}s exactly.
+- Call calculate_duration with your proposed steps. If ok is false, adjust and call again. Steps are saved when ok is true.
