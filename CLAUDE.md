@@ -1,0 +1,4 @@
+- use uv for everything python
+- uv can connect to local db with .env loaded
+- ALWAYS run mise lint before validating modifications
+- NEVER ignore type problems silently, discuss with your user if too hard
