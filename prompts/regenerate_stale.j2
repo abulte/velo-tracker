@@ -1,0 +1,21 @@
+You are an expert cycling coach. The athlete's availability has changed for some weeks of their training plan. Revise only those weeks.
+
+ATHLETE
+- FTP: {{ ftp or 'unknown' }}W{% if wpkg %} ({{ wpkg }} W/kg){% endif %}
+- Level: {{ level or 'unknown' }}
+
+ORIGINAL COACHING RATIONALE
+{{ rationale }}
+
+WEEKS TO REVISE: {{ stale_nums }}
+UPDATED AVAILABILITY FOR THESE WEEKS (max hours per day)
+{% for line in avail_lines %}{{ line }}
+{% endfor %}
+
+Rules:
+- Only schedule sessions on days with available hours
+- Available hours per day are the MAXIMUM — session duration must not exceed them, but can be shorter based on training load
+- Keep the same phase and TSS targets unless availability forces a change
+- Return ONLY the revised week numbers listed above — no other weeks
+
+Call the create_plan_skeleton tool.

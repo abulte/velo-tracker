@@ -1,0 +1,23 @@
+You are an expert cycling coach. Create structured workout steps for this session.
+
+SESSION
+- Title: {{ title }}
+- Type: {{ session_type }}
+- Duration: {{ duration_min }} min
+- TSS target: {{ tss_target }}
+- Day: {{ day_of_week }}, Week {{ week_number }} ({{ phase }} phase)
+- Week focus: {{ week_description }}
+{% if sibling_block %}
+{{ sibling_block }}
+{% endif %}
+PLAN CONTEXT
+{{ plan_context }}
+
+Rules:
+- power_low / power_high are fractions of FTP (e.g. 0.95 = 95% FTP)
+- Use type="set" with repeat > 1 for repeated interval+recovery blocks (e.g. 3×(8min interval + 4min recovery) = one set with repeat=3 containing two steps)
+- Warmup and cooldown are plain steps (not sets), repeat is always 1
+- Total duration must equal {{ duration_sec }} seconds (±60s): sum each plain step's duration_sec, and each set's (repeat × sum of inner step durations)
+- Add a brief description cue to each step
+
+Call the create_session_steps tool.

@@ -2,10 +2,21 @@
 import datetime
 import logging
 import os
+from pathlib import Path
 from typing import TypedDict, NotRequired
 
 import anthropic
+from jinja2 import Environment, FileSystemLoader
 from pydantic import TypeAdapter
+
+from config import ANTHROPIC_MODEL, ANTHROPIC_MAX_TOKENS
+
+_prompts = Environment(
+    loader=FileSystemLoader(Path(__file__).parent / "prompts"),
+    trim_blocks=True,
+    lstrip_blocks=True,
+    keep_trailing_newline=True,
+)
 
 log = logging.getLogger(__name__)
 
@@ -49,10 +60,6 @@ class PlanResult(PlanSkeleton):
 _skeleton_adapter: TypeAdapter[PlanSkeleton] = TypeAdapter(PlanSkeleton)
 _steps_adapter: TypeAdapter[list[dict[str, object]]] = TypeAdapter(list[dict[str, object]])
 
-
-# FIXME: switch back to sonnet/opus for production
-_MODEL = "claude-haiku-4-5-20251001"  # "claude-sonnet-4-6"
-_MAX_TOKENS = 32000
 
 # ---------------------------------------------------------------------------
 # Tool schemas
@@ -161,7 +168,7 @@ def _resolve_week_hours(week, profile):
     return {d: tmpl.get(d, 0.0) for d in _DAYS}
 
 
-def _stream(client, label: str, prompt: str, model: str = _MODEL, max_tokens: int = _MAX_TOKENS, **kwargs):
+def _stream(client, label: str, prompt: str, model: str = ANTHROPIC_MODEL, max_tokens: int = ANTHROPIC_MAX_TOKENS, **kwargs):
     """Log prompt, stream the call, print progress, return final message."""
     print(f"--- {label} ---", flush=True)
     print(prompt, flush=True)
@@ -258,19 +265,9 @@ def generate_plan(goal, profile, pmc_current, start_date, start_week_type) -> Pl
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     # --- Turn 1: rationale ---
-    rationale_prompt = f"""You are an expert cycling coach. Analyse this athlete and produce a detailed coaching rationale for their {plan_weeks}-week training plan.
-
-{context}
-
-Cover:
-1. Fitness assessment — what the CTL/ATL/TSB numbers tell you right now
-2. Periodization strategy — phase breakdown (base/build/peak/taper weeks) and why
-3. TSS progression — starting weekly TSS, ramp rate, when to insert recovery weeks
-4. Training priorities — which physiological systems to target and in what order
-5. How the alternating availability pattern shapes session placement
-6. Any risks or special considerations
-
-Be specific and quantitative. This rationale will directly drive the structured plan."""
+    rationale_prompt = _prompts.get_template("rationale.j2").render(
+        plan_weeks=plan_weeks, context=context
+    )
 
     log.info("=== Turn 1: rationale ===")
     r1 = _stream(client, label="coaching rationale", prompt=rationale_prompt)
@@ -278,19 +275,9 @@ Be specific and quantitative. This rationale will directly drive the structured 
     log.info("rationale (%d chars, stop=%s)", len(rationale), r1.stop_reason)
 
     # --- Turn 2: skeleton ---
-    skeleton_prompt = f"""Based on your coaching rationale, create the structured training plan skeleton.
-
-{context}
-
-YOUR RATIONALE
-{rationale}
-
-Rules:
-- Only schedule sessions on days with available hours
-- Available hours per day are the MAXIMUM — session duration must not exceed them, but can be shorter based on training load
-- No workout step detail — titles and types only (steps are generated separately per session)
-
-Call the create_plan_skeleton tool."""
+    skeleton_prompt = _prompts.get_template("skeleton.j2").render(
+        context=context, rationale=rationale
+    )
 
     log.info("=== Turn 2: skeleton ===")
     r2 = _stream(client, label="plan skeleton", prompt=skeleton_prompt,
@@ -331,26 +318,14 @@ def regenerate_stale_weeks(plan, stale_weeks, profile) -> PlanSkeleton:
         )
 
     wpkg = f"{profile.ftp / profile.weight_kg:.2f}" if profile.ftp and profile.weight_kg else None
-    prompt = f"""You are an expert cycling coach. The athlete's availability has changed for some weeks of their training plan. Revise only those weeks.
-
-ATHLETE
-- FTP: {profile.ftp or 'unknown'}W{f' ({wpkg} W/kg)' if wpkg else ''}
-- Level: {profile.athlete_level or 'unknown'}
-
-ORIGINAL COACHING RATIONALE
-{plan.rationale or plan.summary}
-
-WEEKS TO REVISE: {stale_nums}
-UPDATED AVAILABILITY FOR THESE WEEKS (max hours per day)
-{chr(10).join(avail_lines)}
-
-Rules:
-- Only schedule sessions on days with available hours
-- Available hours per day are the MAXIMUM — session duration must not exceed them, but can be shorter based on training load
-- Keep the same phase and TSS targets unless availability forces a change
-- Return ONLY the revised week numbers listed above — no other weeks
-
-Call the create_plan_skeleton tool."""
+    prompt = _prompts.get_template("regenerate_stale.j2").render(
+        ftp=profile.ftp,
+        wpkg=wpkg,
+        level=profile.athlete_level,
+        rationale=plan.rationale or plan.summary,
+        stale_nums=stale_nums,
+        avail_lines=avail_lines,
+    )
 
     log.info("=== regenerate_stale_weeks: weeks %s ===", stale_nums)
     response = _stream(client, label=f"regenerate weeks {stale_nums}", prompt=prompt,
@@ -390,27 +365,19 @@ def generate_session_steps(session, week, plan, siblings=None) -> list[dict[str,
     else:
         sibling_block = ""
 
-    prompt = f"""You are an expert cycling coach. Create structured workout steps for this session.
-
-SESSION
-- Title: {session.title}
-- Type: {session.session_type}
-- Duration: {session.duration_min} min
-- TSS target: {session.tss_target}
-- Day: {session.day_of_week}, Week {week.week_number} ({week.phase} phase)
-- Week focus: {week.description}
-{(chr(10) + sibling_block) if sibling_block else ""}
-PLAN CONTEXT
-{plan.rationale or plan.summary}
-
-Rules:
-- power_low / power_high are fractions of FTP (e.g. 0.95 = 95% FTP)
-- Use type="set" with repeat > 1 for repeated interval+recovery blocks (e.g. 3×(8min interval + 4min recovery) = one set with repeat=3 containing two steps)
-- Warmup and cooldown are plain steps (not sets), repeat is always 1
-- Total duration must equal {session.duration_min * 60} seconds (±60s): sum each plain step's duration_sec, and each set's (repeat × sum of inner step durations)
-- Add a brief description cue to each step
-
-Call the create_session_steps tool."""
+    prompt = _prompts.get_template("session_steps.j2").render(
+        title=session.title,
+        session_type=session.session_type,
+        duration_min=session.duration_min,
+        duration_sec=session.duration_min * 60,
+        tss_target=session.tss_target,
+        day_of_week=session.day_of_week,
+        week_number=week.week_number,
+        phase=week.phase,
+        week_description=week.description,
+        sibling_block=sibling_block,
+        plan_context=plan.rationale or plan.summary,
+    )
 
     log.info("generating steps for session %d: %s", session.id, session.title)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
