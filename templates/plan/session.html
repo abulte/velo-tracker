@@ -61,7 +61,7 @@
 {% endmacro %}
 
 {% set _day_offsets = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6} %}
-{% set session_date = week.week_start + timedelta(days=_day_offsets[s.day_of_week]) if week.week_start else none %}
+{% set session_date = week.week_start + timedelta(days=_day_offsets[s.day_of_week]) %}
 <div class="text-sm text-base-content/50 mb-4">
     <a href="/goals" class="link link-hover">Goals</a> /
     <a href="/plan/{{ plan.id }}" class="link link-hover">{{ goal.title }}</a> /

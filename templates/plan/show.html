@@ -51,7 +51,6 @@
             </div>
             <div class="text-right text-sm text-base-content/50 shrink-0">
                 <div>{{ week.tss_target }} TSS</div>
-                {% if week.week_start %}
                 {% set week_end = week.week_start + timedelta(days=6) %}
                 <div class="text-xs">
                     {% if week.week_start.month == week_end.month %}
@@ -60,7 +59,6 @@
                         {{ week.week_start.strftime('%-d %b') }}–{{ week_end.strftime('%-d %b') }}
                     {% endif %}
                 </div>
-                {% endif %}
             </div>
         </div>
 
@@ -74,7 +72,7 @@
             {% set has_content = day_sessions or day_hours > 0 %}
             <div class="min-h-16 flex flex-col {{ 'bg-base-200 rounded-lg p-2' if has_content else '' }}">
                 <div class="text-xs text-base-content/40 mb-1 capitalize">
-                    {{ d }}{% if week.week_start %}<span class="ml-1 text-base-content/30">{{ (week.week_start + timedelta(days=loop.index0)).day }}</span>{% endif %}
+                    {{ d }}<span class="ml-1 text-base-content/30">{{ (week.week_start + timedelta(days=loop.index0)).day }}</span>
                 </div>
                 {% for s in day_sessions %}
                 {% set session_hours = s.duration_min / 60 %}
