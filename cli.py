@@ -3,24 +3,63 @@
 
 import base64
 import datetime
-import json
+import logging
 import os
 import sys
 from getpass import getpass
 from pathlib import Path
+from typing import Required, TypedDict
 
 import click
 from dotenv import load_dotenv
 from garminconnect import Garmin, GarminConnectAuthenticationError
-from sqlmodel import Session, create_engine, select
+from pydantic import TypeAdapter
+from sqlmodel import Session, col, create_engine, select
 
 from garmin import get_client
 from models import Activity, Route
 from routes import assign_route_to_all, match_activity_to_routes
 
+log = logging.getLogger(__name__)
+
 load_dotenv()
 
 TOKEN_DIR = Path(__file__).parent / "garmin_tokens"
+
+
+# ---------------------------------------------------------------------------
+# Typed Garmin structures
+# ---------------------------------------------------------------------------
+
+class _GarminActivityType(TypedDict, total=False):
+    typeKey: str
+    parentTypeId: int
+
+
+class GarminActivity(TypedDict, total=False):
+    activityId: Required[int]
+    startTimeGMT: Required[str]
+    activityName: str
+    activityType: _GarminActivityType
+    distance: float
+    movingDuration: float
+    elapsedDuration: float
+    elevationGain: float
+    avgPower: float
+    normPower: float
+    maxPower: float
+    averageHR: float
+    maxHR: float
+    averageBikingCadenceInRevPerMinute: float
+    averageSpeed: float
+    maxSpeed: float
+    trainingStressScore: float
+    intensityFactor: float
+    activityTrainingLoad: float
+    description: str
+
+
+_activity_adapter: TypeAdapter[GarminActivity] = TypeAdapter(GarminActivity)
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +73,21 @@ def _engine():
     return create_engine(url, echo=False)
 
 
-def _extract_polyline(details: dict) -> list:
+def _garmin_activities(client, start: int = 0, limit: int = 20) -> list[GarminActivity]:
+    """Wrapper around Garmin.get_activities that validates and returns typed activities."""
+    raw = client.get_activities(start=start, limit=limit)
+    if not isinstance(raw, list):
+        return []
+    result = []
+    for item in raw:
+        try:
+            result.append(_activity_adapter.validate_python(item))
+        except Exception as e:
+            log.warning("skipping malformed Garmin activity: %s", e)
+    return result
+
+
+def _extract_polyline(details: dict) -> list[list]:
     """Extract [lat, lon, ele] triples from activityDetailMetrics, falling back to geoPolylineDTO."""
     descriptors = details.get("metricDescriptors", [])
     idx = {d["key"]: d["metricsIndex"] for d in descriptors}
@@ -67,7 +120,7 @@ def _extract_polyline(details: dict) -> list:
     return pairs
 
 
-def _map_activity(item: dict, detail_summary: dict | None = None) -> dict:
+def _map_activity(item: GarminActivity, detail_summary: dict | None = None) -> dict[str, object]:
     """Map a Garmin Connect activity dict to our model fields.
 
     `item` comes from get_activities (list endpoint).
@@ -77,21 +130,20 @@ def _map_activity(item: dict, detail_summary: dict | None = None) -> dict:
     at = item.get("activityType", {})
     ds = detail_summary or {}
     return dict(
-        garmin_id=str(item["activityId"]),
         name=item.get("activityName", ""),
         activity_type=at.get("typeKey", ""),
         start_date=datetime.datetime.fromisoformat(
             item["startTimeGMT"].replace(" ", "T")
         ),
         distance=item.get("distance"),
-        moving_time=int(item["movingDuration"]) if item.get("movingDuration") else None,
-        elapsed_time=int(item["elapsedDuration"]) if item.get("elapsedDuration") else None,
+        moving_time=int(v) if (v := item.get("movingDuration")) else None,
+        elapsed_time=int(v) if (v := item.get("elapsedDuration")) else None,
         total_elevation_gain=item.get("elevationGain"),
         average_watts=item.get("avgPower"),
         normalized_watts=item.get("normPower"),
-        max_watts=int(item["maxPower"]) if item.get("maxPower") else None,
+        max_watts=int(v) if (v := item.get("maxPower")) else None,
         average_heartrate=item.get("averageHR"),
-        max_heartrate=int(item["maxHR"]) if item.get("maxHR") else None,
+        max_heartrate=int(v) if (v := item.get("maxHR")) else None,
         average_cadence=item.get("averageBikingCadenceInRevPerMinute"),
         average_speed=item.get("averageSpeed"),
         max_speed=item.get("maxSpeed"),
@@ -118,14 +170,13 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
     cutoff = datetime.datetime.combine(since, datetime.time.min)
 
     while True:
-        batch = client.get_activities(start=offset, limit=batch_size)
+        batch = _garmin_activities(client, start=offset, limit=batch_size)
         if not batch:
             break
 
         past_cutoff = False
         for item in batch:
-            start_str = item.get("startTimeGMT", "")
-            start_dt = datetime.datetime.fromisoformat(start_str.replace(" ", "T"))
+            start_dt = datetime.datetime.fromisoformat(item["startTimeGMT"].replace(" ", "T"))
             if start_dt < cutoff:
                 past_cutoff = True
                 break
@@ -141,27 +192,34 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             type_key = at.get("typeKey", "?")
             click.echo(f"  [{created + updated + 1}] {start_dt:%Y-%m-%d} {name} ({type_key})… ", nl=False)
 
+            garmin_id = str(item["activityId"])
+
             # Fetch detail for RPE/feel (only in summaryDTO)
-            detail = client.get_activity(item["activityId"])
+            detail = client.get_activity(garmin_id)
             detail_summary = detail.get("summaryDTO", {}) if detail else {}
 
             # Fetch polyline (with elevation) for map
             pairs = []
             try:
-                details = client.get_activity_details(item["activityId"])
+                details = client.get_activity_details(garmin_id)
                 pairs = _extract_polyline(details)
             except Exception:
                 pass  # no polyline for this activity
 
             fields = _map_activity(item, detail_summary)
             fields["polyline"] = pairs if pairs else None
-            garmin_id = fields.pop("garmin_id")
+            name = fields.pop("name")
+            assert isinstance(name, str)
+            activity_type = fields.pop("activity_type")
+            assert isinstance(activity_type, str)
+            start_date = fields.pop("start_date")
+            assert isinstance(start_date, datetime.datetime)
 
             existing = session.exec(
                 select(Activity).where(Activity.garmin_id == garmin_id)
             ).first()
             is_new = existing is None
-            activity = existing or Activity(garmin_id=garmin_id)
+            activity = existing or Activity(garmin_id=garmin_id, name=name, activity_type=activity_type, start_date=start_date)
 
             for k, v in fields.items():
                 setattr(activity, k, v)
@@ -172,6 +230,7 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             if activity.polyline:
                 matched = match_activity_to_routes(session, activity)
                 if matched:
+                    assert matched.id is not None
                     activity.route_id = matched.id
 
             if is_new:
@@ -235,7 +294,7 @@ def login():
     # Quick verification
     click.echo()
     click.echo("Verifying…")
-    activities = client.get_activities(start=0, limit=1)
+    activities = _garmin_activities(client, start=0, limit=1)
     if activities:
         a = activities[0]
         at = a.get("activityType", {})
@@ -252,17 +311,18 @@ def assign_routes(route_id: int | None):
     engine = _engine()
     with Session(engine) as session:
         if route_id is not None:
-            routes = [session.get(Route, route_id)]
-            if not routes[0]:
+            route = session.get(Route, route_id)
+            if not route:
                 click.echo(f"Route {route_id} not found.", err=True)
                 return
+            routes = [route]
         else:
             routes = session.exec(select(Route)).all()
 
         # Clear existing assignments for targeted routes
-        route_ids = [r.id for r in routes]
+        route_ids = [r.id for r in routes if r.id is not None]
         activities = session.exec(
-            select(Activity).where(Activity.route_id.in_(route_ids))
+            select(Activity).where(col(Activity.route_id).in_(route_ids))
         ).all()
         for a in activities:
             a.route_id = None
@@ -301,7 +361,7 @@ def enrich_elevation(garmin_id: str | None):
     client = get_client()
 
     with Session(engine) as session:
-        query = select(Activity).where(Activity.polyline.isnot(None))
+        query = select(Activity).where(col(Activity.polyline).isnot(None))
         if garmin_id:
             query = query.where(Activity.garmin_id == garmin_id)
         activities = session.exec(query).all()

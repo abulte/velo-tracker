@@ -1,7 +1,9 @@
 """Route management: geohash-based similarity matching."""
 
+from typing import Optional
+
 import geohash2
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from models import Activity, Route
 
@@ -23,7 +25,7 @@ def similarity(poly_a: list, poly_b: list) -> float:
     return len(a & b) / max(len(a), len(b))
 
 
-def match_activity_to_routes(session: Session, activity) -> "object | None":
+def match_activity_to_routes(session: Session, activity) -> Optional[Route]:
     """Return the best-matching Route for `activity`, or None."""
     if not activity.polyline:
         return None
@@ -60,7 +62,7 @@ def assign_route_to_all(session: Session, route) -> int:
         return 0
 
     activities = session.exec(
-        select(Activity).where(Activity.polyline.isnot(None))
+        select(Activity).where(col(Activity.polyline).isnot(None))
     ).all()
 
     count = 0

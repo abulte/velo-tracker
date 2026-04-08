@@ -2,12 +2,54 @@
 import datetime
 import logging
 import os
+from typing import TypedDict, NotRequired
 
 import anthropic
+from pydantic import TypeAdapter
 
 log = logging.getLogger(__name__)
 
 _DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+
+
+# ---------------------------------------------------------------------------
+# Typed structures for plan data
+# ---------------------------------------------------------------------------
+
+class SessionData(TypedDict):
+    day_of_week: str
+    session_type: str
+    tss_target: int
+    duration_min: int
+    title: str
+    notes: NotRequired[str]
+
+
+class WeekData(TypedDict):
+    week_number: int
+    phase: str
+    tss_target: int
+    description: str
+    sessions: list[SessionData]
+
+
+class PlanSkeleton(TypedDict):
+    summary: str
+    weeks: list[WeekData]
+
+
+class PlanResult(PlanSkeleton):
+    rationale: str
+
+
+# ---------------------------------------------------------------------------
+# Pydantic adapters — parse tool_use.input (Dict[str, object]) into types
+# ---------------------------------------------------------------------------
+
+_skeleton_adapter: TypeAdapter[PlanSkeleton] = TypeAdapter(PlanSkeleton)
+_steps_adapter: TypeAdapter[list[dict[str, object]]] = TypeAdapter(list[dict[str, object]])
+
+
 # FIXME: switch back to sonnet/opus for production
 _MODEL = "claude-haiku-4-5-20251001"  # "claude-sonnet-4-6"
 _MAX_TOKENS = 32000
@@ -204,7 +246,7 @@ TSS REFERENCE: 1h Z2 ≈ 50–60 TSS · 1h threshold ≈ 90–100 TSS · 1h VO2m
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_plan(goal, profile, pmc_current, start_date, start_week_type):
+def generate_plan(goal, profile, pmc_current, start_date, start_week_type) -> PlanResult:
     """
     Two-shot plan generation:
       Turn 1 — coaching rationale (free-form analysis, streamed as text)
@@ -262,11 +304,12 @@ Call the create_plan_skeleton tool."""
     if tool_use is None:
         raise ValueError(f"No tool call in skeleton response. stop_reason={r2.stop_reason}")
 
-    log.info("skeleton: %d weeks, stop=%s", len(tool_use.input.get("weeks", [])), r2.stop_reason)
-    return {"rationale": rationale, **tool_use.input}
+    skeleton = _skeleton_adapter.validate_python(tool_use.input)
+    log.info("skeleton: %d weeks, stop=%s", len(skeleton["weeks"]), r2.stop_reason)
+    return PlanResult(rationale=rationale, summary=skeleton["summary"], weeks=skeleton["weeks"])
 
 
-def regenerate_stale_weeks(plan, stale_weeks, profile):
+def regenerate_stale_weeks(plan, stale_weeks, profile) -> PlanSkeleton:
     """
     Turn 2 only — reuses plan.rationale as prior context.
     Revises only the stale weeks and returns {"weeks": [...]} for those week numbers.
@@ -321,11 +364,12 @@ Call the create_plan_skeleton tool."""
     if tool_use is None:
         raise ValueError(f"No tool call in regenerate response. stop_reason={response.stop_reason}")
 
-    log.info("regenerated %d weeks", len(tool_use.input.get("weeks", [])))
-    return tool_use.input
+    skeleton = _skeleton_adapter.validate_python(tool_use.input)
+    log.info("regenerated %d weeks", len(skeleton["weeks"]))
+    return skeleton
 
 
-def generate_session_steps(session, week, plan, siblings=None):
+def generate_session_steps(session, week, plan, siblings=None) -> list[dict[str, object]]:
     """
     Generate structured workout steps for a single session on demand.
 
@@ -381,6 +425,6 @@ Call the create_session_steps tool."""
     if tool_use is None:
         raise ValueError(f"No tool call in steps response. stop_reason={response.stop_reason}")
 
-    steps = tool_use.input["steps"]
+    steps = _steps_adapter.validate_python(tool_use.input.get("steps", []))
     log.info("generated %d steps for session %d", len(steps), session.id)
     return steps

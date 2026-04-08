@@ -9,8 +9,8 @@ class UserProfile(SQLModel, table=True):
     ftp: Optional[int] = None  # watts
     weight_kg: Optional[float] = None
     # per-day hours templates: {"mon": 0, "tue": 1.5, "wed": 0, "thu": 1.5, "fri": 0, "sat": 4, "sun": 2.5}
-    week_a: Optional[dict] = Field(default=None, sa_column=Column(JSON))
-    week_b: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    week_a: Optional[dict[str, float]] = Field(default=None, sa_column=Column(JSON))
+    week_b: Optional[dict[str, float]] = Field(default=None, sa_column=Column(JSON))
     # intervals.icu
     icu_athlete_id: Optional[str] = None
     icu_api_key: Optional[str] = None
@@ -52,7 +52,7 @@ class TrainingWeek(SQLModel, table=True):
     week_start: Optional[datetime.date] = Field(default=None)  # Monday of that week, set at generation
     stale: bool = Field(default=False)  # True when availability changed since generation
     week_type: str = Field(default="a")  # "a" | "b" | "custom"
-    avail_override: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # per-day hours, only when week_type="custom"
+    avail_override: Optional[dict[str, float]] = Field(default=None, sa_column=Column(JSON))  # per-day hours, only when week_type="custom"
 
 
 class TrainingSession(SQLModel, table=True):
@@ -66,7 +66,7 @@ class TrainingSession(SQLModel, table=True):
     notes: Optional[str] = None
     # Structured workout steps — generated on demand when session detail is first viewed.
     # Each step: {type, duration_sec, power_low, power_high, repeat?, cadence?, description?}
-    steps: Optional[list] = Field(default=None, sa_column=Column(JSON))
+    steps: Optional[list[dict[str, object]]] = Field(default=None, sa_column=Column(JSON))
 
 
 class Route(SQLModel, table=True):

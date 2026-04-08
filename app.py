@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, render_template, redirect, url_for, request
 from flask_fenrir import create_fenrir_bp, secure_app
 from sqlalchemy import func
-from sqlmodel import Session, create_engine, select
+from sqlmodel import Session, col, create_engine, select
 
 from cli import sync_activities
 from climbs import detect_climbs
@@ -145,7 +145,7 @@ def _compute_pmc(activities):
 def dashboard():
     with get_session() as session:
         activities = session.exec(
-            select(Activity).order_by(Activity.start_date.desc())
+            select(Activity).order_by(col(Activity.start_date).desc())
         ).all()
 
     by_week = {}
@@ -183,15 +183,15 @@ def list_activities():
     dur_max = request.args.get("dur_max", type=int)   # minutes
     route_id = request.args.get("route_id", type=int)
 
-    query = select(Activity).order_by(Activity.start_date.desc())
+    query = select(Activity).order_by(col(Activity.start_date).desc())
     if dist_min is not None:
-        query = query.where(Activity.distance >= dist_min * 1000)
+        query = query.where(col(Activity.distance) >= dist_min * 1000)
     if dist_max is not None:
-        query = query.where(Activity.distance <= dist_max * 1000)
+        query = query.where(col(Activity.distance) <= dist_max * 1000)
     if dur_min is not None:
-        query = query.where(Activity.moving_time >= dur_min * 60)
+        query = query.where(col(Activity.moving_time) >= dur_min * 60)
     if dur_max is not None:
-        query = query.where(Activity.moving_time <= dur_max * 60)
+        query = query.where(col(Activity.moving_time) <= dur_max * 60)
     if route_id is not None:
         query = query.where(Activity.route_id == route_id)
 
@@ -276,9 +276,9 @@ def heatmap_data():
     try:
         with get_session() as session:
             activities = session.exec(
-                select(Activity).where(Activity.polyline.isnot(None))
+                select(Activity).where(col(Activity.polyline).isnot(None))
             ).all()
-        
+
         # Build heatmap data: coordinate frequency mapping
         coord_frequency = {}
         
@@ -317,16 +317,16 @@ def list_routes():
         routes = session.exec(select(Route).order_by(Route.name)).all()
         counts = dict(
             session.exec(
-                select(Activity.route_id, func.count(Activity.id))
-                .where(Activity.route_id.isnot(None))
-                .group_by(Activity.route_id)
+                select(col(Activity.route_id), func.count(col(Activity.id)))
+                .where(col(Activity.route_id).isnot(None))
+                .group_by(col(Activity.route_id))
             ).all()
         )
         ref_ids = [r.reference_activity_id for r in routes]
         ref_activities = {
             a.garmin_id: a
             for a in session.exec(
-                select(Activity).where(Activity.garmin_id.in_(ref_ids))
+                select(Activity).where(col(Activity.garmin_id).in_(ref_ids))
             ).all()
         } if ref_ids else {}
 
@@ -377,7 +377,7 @@ def show_route(route_id: int):
         activities = session.exec(
             select(Activity)
             .where(Activity.route_id == route_id)
-            .order_by(Activity.start_date.desc())
+            .order_by(col(Activity.start_date).desc())
         ).all()
         ref_activity = session.exec(
             select(Activity).where(Activity.garmin_id == route.reference_activity_id)
@@ -557,7 +557,7 @@ def sync_icu():
 @app.route("/goals")
 def list_goals():
     with get_session() as session:
-        goals = session.exec(select(Goal).order_by(Goal.created_at.desc())).all()
+        goals = session.exec(select(Goal).order_by(col(Goal.created_at).desc())).all()
         active_plans = {p.goal_id: p.id for p in session.exec(
             select(TrainingPlan).where(TrainingPlan.is_active == True)  # noqa: E712
         ).all()}
@@ -647,7 +647,7 @@ def generate_plan(goal_id: int):
         start_week_type = request.form.get("start_week_type", "a")
 
         # Current PMC values
-        activities = session.exec(select(Activity).order_by(Activity.start_date.desc())).all()
+        activities = session.exec(select(Activity).order_by(col(Activity.start_date).desc())).all()
         pmc = _compute_pmc(list(activities))
         pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
 
@@ -674,6 +674,7 @@ def generate_plan(goal_id: int):
         )
         session.add(plan)
         session.flush()
+        assert plan.id is not None
 
         for week_data in plan_data["weeks"]:
             n = week_data["week_number"]
@@ -690,6 +691,7 @@ def generate_plan(goal_id: int):
             )
             session.add(week)
             session.flush()
+            assert week.id is not None
             for s in week_data.get("sessions", []):
                 session.add(TrainingSession(
                     week_id=week.id,
@@ -718,7 +720,7 @@ def show_plan(plan_id: int):
         weeks = session.exec(
             select(TrainingWeek)
             .where(TrainingWeek.plan_id == plan_id)
-            .order_by(TrainingWeek.week_number)
+            .order_by(col(TrainingWeek.week_number))
         ).all()
 
         # Pre-group sessions by week_id → day_of_week → [sessions]
@@ -763,7 +765,11 @@ def show_session(session_id: int):
         if not s:
             return "Not found", 404
         week = session.get(TrainingWeek, s.week_id)
+        if not week:
+            return "Not found", 404
         plan = session.get(TrainingPlan, week.plan_id)
+        if not plan:
+            return "Not found", 404
         goal = session.get(Goal, plan.goal_id)
         profile = session.get(UserProfile, 1)
 
@@ -777,14 +783,20 @@ def regenerate_session_steps(session_id: int):
         if not s:
             return "Not found", 404
         week = session.get(TrainingWeek, s.week_id)
+        if not week:
+            return "Not found", 404
         plan = session.get(TrainingPlan, week.plan_id)
+        if not plan:
+            return "Not found", 404
         siblings = session.exec(
             select(TrainingSession).where(
                 TrainingSession.week_id == s.week_id,
                 TrainingSession.id != s.id,
             )
         ).all()
-        s.steps = generate_session_steps(s, week, plan, siblings=siblings)
+        steps = generate_session_steps(s, week, plan, siblings=siblings)
+        assert isinstance(steps, list)
+        s.steps = steps
         session.add(s)
         session.commit()
 
@@ -850,8 +862,11 @@ def regenerate_stale(plan_id: int):
             app.logger.exception("regenerate_stale_weeks failed")
             return f"Error: {e}", 500
 
-        revised_by_num = {w["week_number"]: w for w in revised.get("weeks", [])}
+        revised_weeks = revised.get("weeks", [])
+        assert isinstance(revised_weeks, list)
+        revised_by_num = {w["week_number"]: w for w in revised_weeks}
         for week in stale_weeks:
+            assert week.id is not None
             new_data = revised_by_num.get(week.week_number)
             if not new_data:
                 continue

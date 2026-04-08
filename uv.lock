@@ -980,6 +980,7 @@ dependencies = [
     { name = "gunicorn" },
     { name = "markdown" },
     { name = "psycopg2-binary" },
+    { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "sqlmodel" },
 ]
@@ -989,6 +990,12 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-playwright" },
+    { name = "ruff" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
     { name = "ruff" },
 ]
 
@@ -1004,6 +1011,7 @@ requires-dist = [
     { name = "gunicorn" },
     { name = "markdown", specifier = ">=3.10.2" },
     { name = "psycopg2-binary" },
+    { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyright", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-playwright", marker = "extra == 'dev'" },
@@ -1012,6 +1020,12 @@ requires-dist = [
     { name = "sqlmodel" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.408" },
+    { name = "ruff", specifier = ">=0.15.2" },
+]
 
 [[package]]
 name = "werkzeug"
