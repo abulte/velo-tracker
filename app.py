@@ -14,7 +14,7 @@ from sqlmodel import Session, col, create_engine, select
 
 from cli import sync_activities
 from climbs import detect_climbs
-from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours
+from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration
 from config import ZONE_BOUNDARIES
 from icu import sync_athlete as _sync_icu, _classify_level
 from models import Activity, Route, UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession
@@ -123,7 +123,7 @@ def index():
     return redirect(url_for("dashboard"))
 
 
-def _compute_pmc(activities):
+def _compute_pmc(activities, _end: datetime.date | None = None):
     """Compute daily CTL, ATL, TSB (Performance Management Chart)."""
     if not activities:
         return []
@@ -134,7 +134,7 @@ def _compute_pmc(activities):
         daily_tss[d] = daily_tss.get(d, 0) + (a.tss or 0)
 
     start = min(daily_tss)
-    end = datetime.date.today()
+    end = _end or datetime.date.today()
 
     ctl_k = math.exp(-1 / 42)
     atl_k = math.exp(-1 / 7)
@@ -776,23 +776,6 @@ def show_plan(plan_id: int):
     )
 
 
-def _steps_duration(steps: list[dict[str, object]]) -> int:
-    total = 0
-    for step in steps:
-        if step.get("type") == "set":
-            inner_steps = step.get("steps")
-            repeat = step.get("repeat")
-            if isinstance(inner_steps, list) and isinstance(repeat, int):
-                inner = sum(
-                    int(i["duration_sec"])
-                    for i in inner_steps
-                    if isinstance(i, dict) and isinstance(i.get("duration_sec"), int)
-                )
-                total += inner * repeat
-        elif isinstance(dur_sec := step.get("duration_sec"), int):
-            total += dur_sec
-    return total
-
 
 @app.route("/plan/sessions/<int:session_id>")
 def show_session(session_id: int):
@@ -811,7 +794,7 @@ def show_session(session_id: int):
 
     actual_sec: int | None = None
     if s.steps:
-        actual_sec = _steps_duration(s.steps)
+        actual_sec = _calc_steps_duration(s.steps)
 
     return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta, zone_boundaries=ZONE_BOUNDARIES, actual_sec=actual_sec)
 
