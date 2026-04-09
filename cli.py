@@ -220,6 +220,9 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
             ).first()
             is_new = existing is None
             activity = existing or Activity(garmin_id=garmin_id, name=name, activity_type=activity_type, start_date=start_date)
+            activity.name = name
+            activity.activity_type = activity_type
+            activity.start_date = start_date
 
             for k, v in fields.items():
                 setattr(activity, k, v)
