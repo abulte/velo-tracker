@@ -235,9 +235,9 @@ def _stream(client, label: str, prompt: str, model: str = ANTHROPIC_MODEL, max_t
         return stream.get_final_message()
 
 
-def _build_context(goal, profile, pmc_current, start_date, start_week_type):
+def _build_context(goal, profile, pmc_current, start_date, start_week_type, _today: datetime.date | None = None):
     """Build the shared athlete/goal context block used in both turns."""
-    today = datetime.date.today()
+    today = _today or datetime.date.today()
     weeks_to_goal = max(1, (goal.target_date - start_date).days // 7)
     plan_weeks = min(weeks_to_goal, 20)
 
