@@ -293,22 +293,25 @@ TSS REFERENCE: 1h Z2 ≈ 50–60 TSS · 1h threshold ≈ 90–100 TSS · 1h VO2m
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_plan(goal, profile, pmc_current, start_date, start_week_type) -> PlanResult:
+def build_rationale_prompt(goal, profile, pmc_current, start_date, start_week_type) -> str:
+    """Return the Turn 1 rationale prompt for preview/editing before generation."""
+    context, plan_weeks = _build_context(goal, profile, pmc_current, start_date, start_week_type)
+    return _prompts.get_template("rationale.j2").render(plan_weeks=plan_weeks, context=context)
+
+
+def generate_plan(goal, profile, pmc_current, start_date, start_week_type, rationale_prompt: str) -> PlanResult:
     """
     Two-shot plan generation:
       Turn 1 — coaching rationale (free-form analysis, streamed as text)
       Turn 2 — structured skeleton via tool use
 
+    rationale_prompt is always the human-reviewed prompt from the UI preview step.
     Returns dict: {"rationale": str, "summary": str, "weeks": [...]}
     """
     context, plan_weeks = _build_context(goal, profile, pmc_current, start_date, start_week_type)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     # --- Turn 1: rationale ---
-    rationale_prompt = _prompts.get_template("rationale.j2").render(
-        plan_weeks=plan_weeks, context=context
-    )
-
     log.info("=== Turn 1: rationale ===")
     r1 = _stream(client, label="coaching rationale", prompt=rationale_prompt)
     rationale = next(b.text for b in r1.content if b.type == "text")

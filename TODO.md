@@ -22,6 +22,10 @@
 - [x] `POST /plan/<plan_id>/regenerate-stale` — Turn 2 only, replaces stale week sessions
 - [x] Delete plan feature with confirmation modal
 
+## Enhancements
+
+- [x] plan generation: pre-populate prompt in UI (as of today), allow human review/edit before submitting to Claude
+
 ## Phase 4 — Activity association (plan vs actual)
 
 - [ ] `SessionCompletion` model: session_id, activity_id, status (completed/skipped/partial), actual_tss, actual_duration, notes

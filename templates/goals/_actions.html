@@ -15,14 +15,15 @@
 <dialog id="gen-modal-{{ goal.id }}" class="modal">
     <div class="modal-box">
         <h3 class="font-bold text-lg mb-4">{{ 'Regenerate' if plan_id else 'Generate' }} Training Plan</h3>
+        <div id="gen-modal-body-{{ goal.id }}">
         {% if plan_id %}
         <div class="alert alert-warning mb-4 text-sm">
             Your existing plan will be permanently deleted and replaced.
         </div>
         {% endif %}
-        <form hx-post="/goals/{{ goal.id }}/generate-plan"
-              hx-target="#goal-actions-{{ goal.id }}"
-              hx-swap="outerHTML"
+        <form hx-post="/goals/{{ goal.id }}/preview-prompt"
+              hx-target="#gen-modal-body-{{ goal.id }}"
+              hx-swap="innerHTML"
               hx-on::before-request="this.querySelector('[type=submit]').classList.add('loading'); this.querySelector('[type=submit]').disabled=true;">
             <div class="form-control mb-3">
                 <label class="label"><span class="label-text">Start date</span></label>
@@ -42,7 +43,7 @@
                 </div>
             </div>
             <div class="modal-action">
-                <button type="submit" class="btn btn-primary">Generate</button>
+                <button type="submit" class="btn btn-primary">Preview Prompt</button>
                 <button type="button" onclick="this.closest('dialog').close()" class="btn">Cancel</button>
             </div>
         </form>

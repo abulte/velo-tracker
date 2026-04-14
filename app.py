@@ -14,7 +14,7 @@ from sqlmodel import Session, col, create_engine, select
 
 from cli import sync_activities
 from climbs import detect_climbs
-from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration
+from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration, build_rationale_prompt as _build_rationale_prompt
 from config import ZONE_BOUNDARIES
 from icu import sync_athlete as _sync_icu, _classify_level
 from models import Activity, Route, UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession
@@ -647,6 +647,31 @@ def delete_goal(goal_id: int):
     return redirect(url_for("list_goals"))
 
 
+@app.route("/goals/<int:goal_id>/preview-prompt", methods=["POST"])
+def preview_plan_prompt(goal_id: int):
+    session = get_db()
+    goal = session.get(Goal, goal_id)
+    if not goal:
+        return "Not found", 404
+    profile = session.get(UserProfile, 1)
+    if not profile or not profile.ftp:
+        return render_template("goals/_actions.html", goal=goal, plan_id=None,
+                               error="Set your FTP in Profile before generating a plan.")
+
+    start_date_str = request.form.get("start_date")
+    start_date = datetime.date.fromisoformat(start_date_str) if start_date_str else datetime.date.today()
+    start_date -= datetime.timedelta(days=start_date.weekday())
+    start_week_type = request.form.get("start_week_type", "a")
+
+    activities = session.exec(select(Activity).order_by(col(Activity.start_date).desc())).all()
+    pmc = _compute_pmc(list(activities))
+    pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
+
+    prompt = _build_rationale_prompt(goal, profile, pmc_current, start_date, start_week_type)
+    return render_template("goals/_gen_prompt.html", goal=goal, prompt=prompt,
+                           start_date=start_date.isoformat(), start_week_type=start_week_type)
+
+
 @app.route("/goals/<int:goal_id>/generate-plan", methods=["POST"])
 def generate_plan(goal_id: int):
     session = get_db()
@@ -669,9 +694,11 @@ def generate_plan(goal_id: int):
     pmc = _compute_pmc(list(activities))
     pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
 
+    rationale_prompt = request.form.get("custom_prompt", "")
+
     # Call Claude
     try:
-        plan_data = _generate_plan(goal, profile, pmc_current, start_date, start_week_type)
+        plan_data = _generate_plan(goal, profile, pmc_current, start_date, start_week_type, rationale_prompt=rationale_prompt)
         app.logger.info("plan_data keys: %s, weeks: %d", list(plan_data.keys()), len(plan_data.get("weeks", [])))
     except Exception as e:
         app.logger.exception("generate_plan failed")
