@@ -249,7 +249,13 @@ def _build_context(goal, profile, pmc_current, start_date, start_week_type, _tod
         ws = week_monday + datetime.timedelta(weeks=i)
         week_type = "a" if (i % 2 == 0) == (start_week_type == "a") else "b"
         tmpl = (profile.week_a if week_type == "a" else profile.week_b) or {}
-        hours = {d: tmpl.get(d, 0.0) for d in _DAYS}
+        # Zero out days outside the plan window so Claude doesn't schedule there,
+        # even though the availability grid is wider (Monday-aligned weeks may
+        # extend before start_date or after goal.target_date).
+        hours = {
+            d: (tmpl.get(d, 0.0) if start_date <= ws + datetime.timedelta(days=j) <= goal.target_date else 0.0)
+            for j, d in enumerate(_DAYS)
+        }
         total_h = sum(hours.values())
         day_detail = ", ".join(
             f"{d} {hours[d]:.4g}h" for d in _DAYS if hours.get(d, 0) > 0
