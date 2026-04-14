@@ -5,14 +5,22 @@
 - [x] extract prompts to text/jinja files
 - [x] use g for session storage (pool compatible) and remove context managers
 - [x] move config (model...) to config file
-- [ ] write sensible tests
+- [x] review generate plan prompt: rationale has way too many details and is very slow (but keep plan quality as high as possible)
+- [x] review skeleton prompt quality vs speed tradeoff
+- [x] review session steps prompt quality (zone-based steps, calculate_duration tool)
+- [x] write sensible tests
+- [ ] e2e / more complete test coverage
 - [ ] switch config.py back to sonnet/opus for production
 
-## Enhancements
+## Phase 3 — Availability wiring (DONE)
 
-- [x] review generate plan prompt: rationale has way too many details and is very slow (but keep plan quality as high as possible)
-- [ ] review skeleton prompt quality vs speed tradeoff
-- [ ] review session steps prompt quality
+- [x] `TrainingWeek.week_start` + `stale` fields
+- [x] Migration: `training_week_stale` + `plan_owned_availability`
+- [x] Store `week_start` at generation time
+- [x] `POST /plan/weeks/<week_id>/availability` — persist override, mark stale
+- [x] Stale badge on week header + stale banner at top of plan
+- [x] `POST /plan/<plan_id>/regenerate-stale` — Turn 2 only, replaces stale week sessions
+- [x] Delete plan feature with confirmation modal
 
 ## Phase 4 — Activity association (plan vs actual)
 
