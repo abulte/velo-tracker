@@ -4,6 +4,7 @@ import math
 import os
 
 import markdown as _markdown
+from markupsafe import Markup
 
 import click
 from dotenv import load_dotenv
@@ -28,9 +29,8 @@ app = Flask("velo-tracker")
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
 
 @app.template_filter("markdown")
-def markdown_filter(text: str) -> str:
-    from markupsafe import Markup
-    return str(Markup(_markdown.markdown(text or "", extensions=["nl2br", "tables"])))
+def markdown_filter(text: str) -> Markup:
+    return Markup(_markdown.markdown(text or "", extensions=["nl2br", "tables"]))
 
 
 @app.template_filter("fmt_dur")
