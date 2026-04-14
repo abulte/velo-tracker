@@ -694,7 +694,10 @@ def generate_plan(goal_id: int):
     pmc = _compute_pmc(list(activities))
     pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
 
-    rationale_prompt = request.form.get("custom_prompt", "")
+    rationale_prompt = request.form.get("custom_prompt", "").strip()
+    if not rationale_prompt:
+        return render_template("goals/_actions.html", goal=goal, plan_id=None,
+                               error="Prompt cannot be empty. Use Preview Prompt to review before generating.")
 
     # Call Claude
     try:

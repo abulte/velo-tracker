@@ -10,7 +10,7 @@
 - [x] review session steps prompt quality (zone-based steps, calculate_duration tool)
 - [x] write sensible tests
 - [ ] e2e / more complete test coverage
-- [ ] switch config.py back to sonnet/opus for production
+- [x] switch config.py back to sonnet/opus for production
 
 ## Phase 3 — Availability wiring (DONE)
 
