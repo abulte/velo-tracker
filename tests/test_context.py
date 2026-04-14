@@ -11,30 +11,7 @@ PMC = {"ctl": 55.0, "atl": 60.0, "tsb": -5.0}
 
 def ctx(g=None, p=None, pmc=None, start=START, week_type="a"):
     """Shorthand: build context and return the string."""
-    return _build_context(g or goal(), p or profile(), pmc or PMC, start, week_type, _today=TODAY)[0]
-
-
-def plan_weeks(g=None, start=START, week_type="a"):
-    return _build_context(g or goal(), profile(), PMC, start, week_type, _today=TODAY)[1]
-
-
-# ---------------------------------------------------------------------------
-# plan_weeks calculation
-# ---------------------------------------------------------------------------
-
-def test_plan_weeks_uses_weeks_to_goal():
-    g = goal(target_date=TODAY + datetime.timedelta(weeks=8))
-    assert plan_weeks(g, start=TODAY) == 8
-
-
-def test_plan_weeks_capped_at_20():
-    g = goal(target_date=TODAY + datetime.timedelta(weeks=30))
-    assert plan_weeks(g, start=TODAY) == 20
-
-
-def test_plan_weeks_minimum_one():
-    g = goal(target_date=TODAY + datetime.timedelta(days=3))
-    assert plan_weeks(g, start=TODAY) >= 1
+    return _build_context(g or goal(), p or profile(), pmc or PMC, start, week_type, _today=TODAY)
 
 
 # ---------------------------------------------------------------------------
@@ -96,15 +73,37 @@ def test_start_note_hidden_when_today():
 
 
 # ---------------------------------------------------------------------------
+# plan window
+# ---------------------------------------------------------------------------
+
+def test_plan_window_in_context():
+    g = goal(target_date=datetime.date(2024, 8, 3))
+    result = ctx(g, start=datetime.date(2024, 6, 3))
+    assert "01 Jun 2024 → 03 Aug 2024" in result or "03 Jun 2024 → 03 Aug 2024" in result
+    assert "hard boundaries" in result
+
+
+# ---------------------------------------------------------------------------
 # weekly availability lines
 # ---------------------------------------------------------------------------
 
-def test_avail_lines_count_matches_plan_weeks():
-    g = goal(target_date=TODAY + datetime.timedelta(weeks=6))
-    p = profile(week_a={"sat": 3.0, "sun": 2.0}, week_b={"sat": 2.0})
-    result, weeks = _build_context(g, p, PMC, TODAY, "a", _today=TODAY)
-    assert weeks == 6
-    assert result.count("Week ") == 6
+@pytest.mark.parametrize("days,expected_weeks", [
+    (19, 3),   # original bug: Apr 14 → May 3, was giving 2
+    (42, 7),   # exact multiple: 6 full weeks + event on Monday of week 7
+    (21, 4),   # 3 weeks + event on Monday of week 4
+    (6,  1),   # less than a week
+    (3,  1),   # minimum 1
+])
+def test_avail_lines_cover_goal_date(days, expected_weeks):
+    g = goal(target_date=TODAY + datetime.timedelta(days=days))
+    result = _build_context(g, profile(), PMC, TODAY, "a", _today=TODAY)
+    assert result.count("Week ") == expected_weeks
+
+
+def test_avail_lines_capped_at_20():
+    g = goal(target_date=TODAY + datetime.timedelta(weeks=30))
+    result = _build_context(g, profile(), PMC, TODAY, "a", _today=TODAY)
+    assert result.count("Week ") == 20
 
 
 def test_avail_lines_show_hours():

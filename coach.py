@@ -238,8 +238,8 @@ def _stream(client, label: str, prompt: str, model: str = ANTHROPIC_MODEL, max_t
 def _build_context(goal, profile, pmc_current, start_date, start_week_type, _today: datetime.date | None = None):
     """Build the shared athlete/goal context block used in both turns."""
     today = _today or datetime.date.today()
-    weeks_to_goal = max(1, (goal.target_date - start_date).days // 7)
-    plan_weeks = min(weeks_to_goal, 20)
+    days_to_goal = (goal.target_date - start_date).days
+    plan_weeks = min(max(1, days_to_goal // 7 + 1), 20)
 
     avail_lines = []
     for i in range(plan_weeks):
@@ -278,7 +278,7 @@ ATHLETE
 
 GOAL
 - {goal.title}: {goal_type_desc}
-- Plan: {plan_weeks} weeks starting {start_date.strftime('%d %b %Y')}{f' (of {weeks_to_goal} total to goal)' if weeks_to_goal > plan_weeks else ''}
+- Plan window: {start_date.strftime('%d %b %Y')} → {goal.target_date.strftime('%d %b %Y')} (hard boundaries — no sessions before start, no sessions after end)
 {f'- Notes: {goal.notes}' if goal.notes else ''}
 
 WEEKLY AVAILABILITY (max hours per day — sessions may be shorter)
@@ -287,7 +287,7 @@ WEEKLY AVAILABILITY (max hours per day — sessions may be shorter)
 POWER ZONES (% FTP): {_ZONE_DESC}
 TSS REFERENCE: 1h Z2 ≈ 50–60 TSS · 1h threshold ≈ 90–100 TSS · 1h VO2max ≈ 110–120 TSS"""
 
-    return context, plan_weeks
+    return context
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -295,8 +295,8 @@ TSS REFERENCE: 1h Z2 ≈ 50–60 TSS · 1h threshold ≈ 90–100 TSS · 1h VO2m
 
 def build_rationale_prompt(goal, profile, pmc_current, start_date, start_week_type) -> str:
     """Return the Turn 1 rationale prompt for preview/editing before generation."""
-    context, plan_weeks = _build_context(goal, profile, pmc_current, start_date, start_week_type)
-    return _prompts.get_template("rationale.j2").render(plan_weeks=plan_weeks, context=context)
+    context = _build_context(goal, profile, pmc_current, start_date, start_week_type)
+    return _prompts.get_template("rationale.j2").render(context=context)
 
 
 def generate_plan(goal, profile, pmc_current, start_date, start_week_type, rationale_prompt: str) -> PlanResult:
@@ -308,7 +308,7 @@ def generate_plan(goal, profile, pmc_current, start_date, start_week_type, ratio
     rationale_prompt is always the human-reviewed prompt from the UI preview step.
     Returns dict: {"rationale": str, "summary": str, "weeks": [...]}
     """
-    context, plan_weeks = _build_context(goal, profile, pmc_current, start_date, start_week_type)
+    context = _build_context(goal, profile, pmc_current, start_date, start_week_type)
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
     # --- Turn 1: rationale ---
