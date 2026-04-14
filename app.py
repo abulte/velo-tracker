@@ -660,7 +660,6 @@ def preview_plan_prompt(goal_id: int):
 
     start_date_str = request.form.get("start_date")
     start_date = datetime.date.fromisoformat(start_date_str) if start_date_str else datetime.date.today()
-    start_date -= datetime.timedelta(days=start_date.weekday())
     start_week_type = request.form.get("start_week_type", "a")
 
     activities = session.exec(select(Activity).order_by(col(Activity.start_date).desc())).all()
@@ -686,7 +685,6 @@ def generate_plan(goal_id: int):
     # Parse modal params
     start_date_str = request.form.get("start_date")
     start_date = datetime.date.fromisoformat(start_date_str) if start_date_str else datetime.date.today()
-    start_date -= datetime.timedelta(days=start_date.weekday())  # snap to Monday
     start_week_type = request.form.get("start_week_type", "a")
 
     # Current PMC values
@@ -724,10 +722,11 @@ def generate_plan(goal_id: int):
     session.flush()
     assert plan.id is not None
 
+    week_monday = start_date - datetime.timedelta(days=start_date.weekday())
     for week_data in plan_data["weeks"]:
         n = week_data["week_number"]
         week_type = "a" if (n % 2 == 1) == (start_week_type == "a") else "b"
-        week_start = start_date + datetime.timedelta(weeks=n - 1)
+        week_start = week_monday + datetime.timedelta(weeks=n - 1)
         week = TrainingWeek(
             plan_id=plan.id,
             week_number=n,

@@ -241,9 +241,12 @@ def _build_context(goal, profile, pmc_current, start_date, start_week_type, _tod
     days_to_goal = (goal.target_date - start_date).days
     plan_weeks = min(max(1, days_to_goal // 7 + 1), 20)
 
+    # Availability grid is always Monday-aligned regardless of start_date
+    week_monday = start_date - datetime.timedelta(days=start_date.weekday())
+
     avail_lines = []
     for i in range(plan_weeks):
-        ws = start_date + datetime.timedelta(weeks=i)
+        ws = week_monday + datetime.timedelta(weeks=i)
         week_type = "a" if (i % 2 == 0) == (start_week_type == "a") else "b"
         tmpl = (profile.week_a if week_type == "a" else profile.week_b) or {}
         hours = {d: tmpl.get(d, 0.0) for d in _DAYS}
