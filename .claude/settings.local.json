@@ -5,7 +5,8 @@
       "WebFetch(domain:intervals.icu)",
       "WebFetch(domain:forum.intervals.icu)",
       "Bash(mise lint:*)",
-      "Bash(mise test:*)"
+      "Bash(mise test:*)",
+      "Bash(mise run:*)"
     ]
   }
 }

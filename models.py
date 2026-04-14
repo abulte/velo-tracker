@@ -17,7 +17,7 @@ class UserProfile(SQLModel, table=True):
     peak_ctl: Optional[float] = None
     athlete_level: Optional[str] = None  # "recreational" | "amateur" | "competitive" | "elite"
     icu_synced_at: Optional[datetime.datetime] = None
-    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    updated_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 
@@ -29,13 +29,13 @@ class Goal(SQLModel, table=True):
     target_ftp: Optional[int] = None  # watts, used when goal_type == "ftp"
     notes: Optional[str] = None
     is_active: bool = False
-    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
 class TrainingPlan(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     goal_id: int = Field(foreign_key="goal.id", index=True)
-    generated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    generated_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
     start_date: Optional[datetime.date] = Field(default=None)  # Monday of week 1
     summary: str
     rationale: Optional[str] = None  # full coaching analysis from turn 1
@@ -73,7 +73,7 @@ class Route(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     reference_activity_id: str  # garmin_id of the reference activity
-    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
     garmin_course_url: Optional[str] = None
 
 
@@ -128,5 +128,5 @@ class Activity(SQLModel, table=True):
 
     # Metadata
     description: Optional[str] = None
-    synced_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
-    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    synced_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
+    updated_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))

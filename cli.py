@@ -226,7 +226,7 @@ def sync_activities(session: Session, since: datetime.date) -> dict[str, int]:
 
             for k, v in fields.items():
                 setattr(activity, k, v)
-            activity.updated_at = datetime.datetime.utcnow()
+            activity.updated_at = datetime.datetime.now(datetime.UTC)
 
             session.add(activity)
 
@@ -384,7 +384,7 @@ def enrich_elevation(garmin_id: str | None):
                 pairs = _extract_polyline(details)
                 if pairs:
                     activity.polyline = pairs
-                    activity.updated_at = datetime.datetime.utcnow()
+                    activity.updated_at = datetime.datetime.now(datetime.UTC)
                     session.add(activity)
                     session.commit()
                     has_ele = sum(1 for p in pairs if len(p) > 2 and p[2] is not None)
