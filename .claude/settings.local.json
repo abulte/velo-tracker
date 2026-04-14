@@ -3,7 +3,9 @@
     "allow": [
       "WebSearch",
       "WebFetch(domain:intervals.icu)",
-      "WebFetch(domain:forum.intervals.icu)"
+      "WebFetch(domain:forum.intervals.icu)",
+      "Bash(mise lint:*)",
+      "Bash(mise test:*)"
     ]
   }
 }
