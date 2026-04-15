@@ -248,8 +248,21 @@ def sync_activities_route():
         datetime.date.today() - datetime.timedelta(days=7)
     ).isoformat()
     cutoff = datetime.date.fromisoformat(oldest)
-    session = get_db()
-    result = sync_activities(session, cutoff)
+    db = get_db()
+    result = sync_activities(db, cutoff)
+
+    # Also sync compliance for active plan
+    active_plan = db.exec(
+        select(TrainingPlan).where(TrainingPlan.is_active)
+    ).first()
+    if active_plan and active_plan.id:
+        try:
+            updated = _sync_plan_compliance_impl(db, active_plan.id)
+            if updated > 0:
+                result["compliance_updated"] = updated
+        except Exception as e:
+            app.logger.error("ICU compliance sync during activity sync failed: %s", e)
+
     return render_template("activities/_sync_result.html", **result)
 
 
@@ -1035,18 +1048,8 @@ def push_plan_to_icu(plan_id: int):
     return redirect(url_for("show_plan", plan_id=plan_id))
 
 
-@app.route("/plan/<int:plan_id>/sync-compliance", methods=["POST"])
-def sync_plan_compliance(plan_id: int):
-    db = get_db()
-    plan = db.get(TrainingPlan, plan_id)
-    if not plan:
-        return "Not found", 404
-    profile = db.get(UserProfile, 1)
-    if not profile or not profile.icu_athlete_id or not profile.icu_api_key:
-        flash("Set your intervals.icu credentials in Profile first.")
-        return redirect(url_for("show_plan", plan_id=plan_id))
-
-    # Collect sessions that have been pushed to ICU
+def _sync_plan_compliance_impl(db: "Session", plan_id: int) -> int:
+    """Sync compliance from ICU for a plan. Returns number of sessions updated."""
     weeks = db.exec(select(TrainingWeek).where(TrainingWeek.plan_id == plan_id)).all()
     sessions_by_event: dict[str, "TrainingSession"] = {}
     dates: list[datetime.date] = []
@@ -1059,20 +1062,18 @@ def sync_plan_compliance(plan_id: int):
                 dates.append(week.week_start + datetime.timedelta(days=_DAY_OFFSETS[s.day_of_week]))
 
     if not sessions_by_event:
-        flash("No sessions have been pushed to intervals.icu yet.")
-        return redirect(url_for("show_plan", plan_id=plan_id))
+        return 0
+
+    profile = db.get(UserProfile, 1)
+    if not profile or not profile.icu_athlete_id or not profile.icu_api_key:
+        return 0
 
     oldest = min(dates)
     newest = max(dates)
-    try:
-        compliance_map = _fetch_icu_compliance(
-            profile.icu_athlete_id, profile.icu_api_key,
-            set(sessions_by_event.keys()), oldest, newest,
-        )
-    except Exception as e:
-        app.logger.error("ICU compliance fetch failed: %s", e)
-        flash(f"Failed to fetch compliance from intervals.icu: {e}")
-        return redirect(url_for("show_plan", plan_id=plan_id))
+    compliance_map = _fetch_icu_compliance(
+        profile.icu_athlete_id, profile.icu_api_key,
+        set(sessions_by_event.keys()), oldest, newest,
+    )
 
     updated = 0
     for event_id, (compliance, garmin_id) in compliance_map.items():
@@ -1083,8 +1084,40 @@ def sync_plan_compliance(plan_id: int):
             s.activity_id = activity.id
         db.add(s)
         updated += 1
-    db.commit()
-    flash(f"Compliance updated for {updated} session{'s' if updated != 1 else ''}.")
+    if updated > 0:
+        db.commit()
+    return updated
+
+
+@app.route("/plan/<int:plan_id>/sync", methods=["POST"])
+def sync_plan_activities(plan_id: int):
+    db = get_db()
+    plan = db.get(TrainingPlan, plan_id)
+    if not plan:
+        return "Not found", 404
+
+    # Sync Garmin activities from last 7 days
+    cutoff = datetime.date.today() - datetime.timedelta(days=7)
+    result = sync_activities(db, cutoff)
+
+    # Sync compliance for this plan
+    try:
+        updated = _sync_plan_compliance_impl(db, plan_id)
+        if updated > 0:
+            result["compliance_updated"] = updated
+    except Exception as e:
+        app.logger.error("ICU compliance sync failed: %s", e)
+
+    messages = []
+    if result.get("created") or result.get("updated"):
+        messages.append(f"{result.get('created', 0)} activities created, {result.get('updated', 0)} updated")
+    if result.get("compliance_updated"):
+        messages.append(f"Compliance updated for {result['compliance_updated']} session{'s' if result['compliance_updated'] != 1 else ''}")
+    if messages:
+        flash(" · ".join(messages))
+    elif not result.get("skipped"):
+        flash("No new activities to sync")
+
     return redirect(url_for("show_plan", plan_id=plan_id))
 
 

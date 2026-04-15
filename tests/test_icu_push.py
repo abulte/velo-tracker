@@ -148,6 +148,103 @@ def test_push_set_produces_repeat_step():
 
 
 # ---------------------------------------------------------------------------
+# sync_plan_compliance_impl
+# ---------------------------------------------------------------------------
+
+def test_sync_compliance_links_activities(db):
+    """Syncing compliance should link Activity records to TrainingSession."""
+    import datetime
+    from models import UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession, Activity
+    from app import _sync_plan_compliance_impl
+
+    # Setup
+    profile = UserProfile(icu_athlete_id="i123", icu_api_key="key")
+    db.add(profile)
+    goal = Goal(title="Test", goal_type="race", target_date=datetime.date(2026, 6, 1))
+    db.add(goal)
+    db.flush()
+    assert goal.id is not None
+    plan = TrainingPlan(goal_id=goal.id, summary="test")
+    db.add(plan)
+    db.flush()
+    assert plan.id is not None
+    week = TrainingWeek(plan_id=plan.id, week_number=1, phase="base", tss_target=100, description="", week_start=datetime.date(2026, 5, 4))
+    db.add(week)
+    db.flush()
+    assert week.id is not None
+    session = TrainingSession(week_id=week.id, day_of_week="mon", session_type="threshold", tss_target=80, duration_min=60, title="Workout", icu_event_id="event-42")
+    db.add(session)
+    activity = Activity(garmin_id="garmin-123", name="Done", activity_type="cycling", start_date=datetime.datetime(2026, 5, 4))
+    db.add(activity)
+    db.commit()
+
+    with patch("app._fetch_icu_compliance") as mock_fetch:
+        mock_fetch.return_value = {"event-42": (85.5, "garmin-123")}
+        updated = _sync_plan_compliance_impl(db, plan.id)
+
+    assert updated == 1
+    db.refresh(session)
+    assert session.icu_compliance == 85.5
+    assert session.activity_id == activity.id
+
+
+def test_sync_compliance_no_pushed_sessions(db):
+    """Sync returns 0 when no sessions have been pushed."""
+    import datetime
+    from models import UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession
+    from app import _sync_plan_compliance_impl
+
+    profile = UserProfile(icu_athlete_id="i123", icu_api_key="key")
+    db.add(profile)
+    goal = Goal(title="Test", goal_type="race", target_date=datetime.date(2026, 6, 1))
+    db.add(goal)
+    db.flush()
+    assert goal.id is not None
+    plan = TrainingPlan(goal_id=goal.id, summary="test")
+    db.add(plan)
+    db.flush()
+    assert plan.id is not None
+    week = TrainingWeek(plan_id=plan.id, week_number=1, phase="base", tss_target=100, description="", week_start=datetime.date(2026, 5, 4))
+    db.add(week)
+    db.flush()
+    assert week.id is not None
+    session = TrainingSession(week_id=week.id, day_of_week="mon", session_type="threshold", tss_target=80, duration_min=60, title="Workout", icu_event_id=None)
+    db.add(session)
+    db.commit()
+
+    updated = _sync_plan_compliance_impl(db, plan.id)
+
+    assert updated == 0
+
+
+def test_sync_compliance_no_credentials(db):
+    """Sync returns 0 when ICU credentials are not set."""
+    import datetime
+    from models import Goal, TrainingPlan, TrainingWeek, TrainingSession
+    from app import _sync_plan_compliance_impl
+
+    goal = Goal(title="Test", goal_type="race", target_date=datetime.date(2026, 6, 1))
+    db.add(goal)
+    db.flush()
+    assert goal.id is not None
+    plan = TrainingPlan(goal_id=goal.id, summary="test")
+    db.add(plan)
+    db.flush()
+    assert plan.id is not None
+    week = TrainingWeek(plan_id=plan.id, week_number=1, phase="base", tss_target=100, description="", week_start=datetime.date(2026, 5, 4))
+    db.add(week)
+    db.flush()
+    assert week.id is not None
+    session = TrainingSession(week_id=week.id, day_of_week="mon", session_type="threshold", tss_target=80, duration_min=60, title="Workout", icu_event_id="event-42")
+    db.add(session)
+    db.commit()
+
+    updated = _sync_plan_compliance_impl(db, plan.id)
+
+    assert updated == 0
+
+
+# ---------------------------------------------------------------------------
 # fetch_compliance
 # ---------------------------------------------------------------------------
 
