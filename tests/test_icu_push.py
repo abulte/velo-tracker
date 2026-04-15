@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from fitparse import FitFile
 
-from icu import delete_workout_event, push_workout_event
+from icu import delete_workout_event, fetch_compliance, push_workout_event
 
 
 STEPS = [
@@ -108,3 +108,44 @@ def test_push_set_produces_repeat_step():
     repeat = workout_steps[2]
     assert repeat["duration_type"] == "repeat_until_steps_cmplt"
     assert repeat["repeat_steps"] == 3
+
+
+# ---------------------------------------------------------------------------
+# fetch_compliance
+# ---------------------------------------------------------------------------
+
+def _mock_activities(activities):
+    return patch("icu.requests.get", return_value=MagicMock(
+        raise_for_status=lambda: None,
+        json=lambda: activities,
+    ))
+
+
+def test_fetch_compliance_returns_matched():
+    activities = [
+        {"id": "i1", "paired_event_id": 42, "compliance": 95.5, "external_id": "22533552380"},
+        {"id": "i2", "paired_event_id": 99, "compliance": 80.0, "external_id": "22533552381"},
+    ]
+    with _mock_activities(activities):
+        result = fetch_compliance("i123", "key", {"42"}, datetime.date(2026, 5, 1), datetime.date(2026, 5, 7))
+    assert result == {"42": (95.5, "22533552380")}
+
+
+def test_fetch_compliance_ignores_unmatched():
+    activities = [
+        {"id": "i1", "paired_event_id": 99, "compliance": 80.0, "external_id": "22533552381"},
+    ]
+    with _mock_activities(activities):
+        result = fetch_compliance("i123", "key", {"42"}, datetime.date(2026, 5, 1), datetime.date(2026, 5, 7))
+    assert result == {}
+
+
+def test_fetch_compliance_ignores_missing_fields():
+    activities = [
+        {"id": "i1", "paired_event_id": 42, "compliance": None, "external_id": "22533552380"},
+        {"id": "i2", "paired_event_id": 42, "compliance": 80.0, "external_id": None},
+        {"id": "i3", "paired_event_id": None, "compliance": 80.0, "external_id": "22533552382"},
+    ]
+    with _mock_activities(activities):
+        result = fetch_compliance("i123", "key", {"42"}, datetime.date(2026, 5, 1), datetime.date(2026, 5, 7))
+    assert result == {}

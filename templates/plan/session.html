@@ -63,9 +63,21 @@
         </span>
     </div>
     <h1 class="text-2xl font-bold mb-1">{{ s.title }}</h1>
-    <p class="text-base-content/50 text-sm mb-6">
+    <p class="text-base-content/50 text-sm mb-2">
       {{ (s.duration_min * 60) | fmt_dur }}{% if actual_sec is not none and actual_sec != s.duration_min * 60 %} <span class="{% if (actual_sec - s.duration_min * 60) | abs > 60 %}text-warning{% endif %}">({{ actual_sec | fmt_dur }})</span>{% endif %} · {{ s.tss_target }} TSS{% if ftp %} · FTP {{ ftp }}W{% endif %}
     </p>
+    {% if s.icu_compliance is not none or activity %}
+    <div class="flex items-center gap-3 text-sm mb-6">
+        {% if s.icu_compliance is not none %}
+        <span class="font-medium {{ 'text-success' if s.icu_compliance >= 80 else 'text-warning' if s.icu_compliance >= 50 else 'text-error' }}">{{ s.icu_compliance | int }}% compliance</span>
+        {% endif %}
+        {% if activity %}
+        <a href="/activities/{{ activity.garmin_id }}" class="link link-hover">🚴 {{ activity.name }}{% if activity.tss %} · {{ activity.tss | int }} TSS{% endif %}{% if activity.moving_time %} · {{ activity.moving_time | fmt_dur }}{% endif %}</a>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="mb-6"></div>
+    {% endif %}
 
     {% if s.steps is none %}
     <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"

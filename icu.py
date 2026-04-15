@@ -20,6 +20,13 @@ def _get(athlete_id: str, api_key: str, path: str, **params) -> dict:
     return r.json()  # type: ignore[no-any-return]
 
 
+def _get_list(athlete_id: str, api_key: str, path: str, **params) -> list:
+    url = f"{_BASE}/athlete/{athlete_id}/{path}"
+    r = requests.get(url, auth=("API_KEY", api_key), params=params, timeout=15)
+    r.raise_for_status()
+    return r.json()  # type: ignore[no-any-return]
+
+
 def _post(athlete_id: str, api_key: str, path: str, payload: object) -> object:
     url = f"{_BASE}/athlete/{athlete_id}/{path}"
     r = requests.post(url, auth=("API_KEY", api_key), data=json.dumps(payload).encode(),
@@ -119,3 +126,37 @@ def delete_workout_event(athlete_id: str, api_key: str, event_id: str) -> None:
     """Delete a workout calendar event from intervals.icu. Silently ignores 404."""
     _del(athlete_id, api_key, f"events/{event_id}")
     log.info("icu delete: event %s", event_id)
+
+
+# ---------------------------------------------------------------------------
+# Compliance sync
+# ---------------------------------------------------------------------------
+
+def fetch_compliance(
+    athlete_id: str,
+    api_key: str,
+    event_ids: set[str],
+    oldest: datetime.date,
+    newest: datetime.date,
+) -> dict[str, tuple[float, str]]:
+    """
+    Return a mapping of icu_event_id → (compliance%, garmin_activity_id) for activities
+    paired to one of the given event IDs.  Unpaired or missing activities are omitted.
+    """
+    activities = _get_list(
+        athlete_id, api_key, "activities",
+        oldest=oldest.isoformat(),
+        newest=newest.isoformat(),
+        fields="id,paired_event_id,compliance,external_id",
+    )
+    result: dict[str, tuple[float, str]] = {}
+    for act in activities:
+        paired = act.get("paired_event_id")
+        compliance = act.get("compliance")
+        garmin_id = act.get("external_id")  # external_id is the Garmin activity ID
+        if paired is not None and compliance is not None and garmin_id is not None:
+            eid = str(paired)
+            if eid in event_ids:
+                result[eid] = (float(compliance), str(garmin_id))
+                log.info("icu compliance: event %s → %.0f%% (activity %s)", eid, compliance, garmin_id)
+    return result

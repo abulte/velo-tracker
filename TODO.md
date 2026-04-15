@@ -11,6 +11,7 @@
 - [x] write sensible tests
 - [ ] e2e / more complete test coverage
 - [x] switch config.py back to sonnet/opus for production
+- [ ] why the _ in method names imports?
 
 ## Phase 3 — Availability wiring (DONE)
 

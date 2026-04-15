@@ -14,13 +14,22 @@
     <div class="text-right shrink-0 flex flex-col items-end gap-2">
         <div class="text-sm text-base-content/50">{{ weeks | length }} weeks · target {{ goal.target_date.strftime('%-d %b %Y') }}</div>
         {% if has_icu and sessions_with_steps > 0 %}
-        <form method="POST" action="/plan/{{ plan.id }}/push-to-icu"
-              onsubmit="this.querySelector('.session-spinner').style.display='inline-block';">
-            <div class="flex items-center gap-2">
-                <button class="btn btn-xs btn-outline">Push to ICU ({{ sessions_with_steps }})</button>
-                <span class="session-spinner loading loading-spinner loading-xs" style="display:none"></span>
-            </div>
-        </form>
+        <div class="flex items-center gap-2">
+            <form method="POST" action="/plan/{{ plan.id }}/push-to-icu"
+                  onsubmit="this.querySelector('.btn-spinner').style.display='inline-block';">
+                <div class="flex items-center gap-1">
+                    <button class="btn btn-xs btn-outline">Push to ICU ({{ sessions_with_steps }})</button>
+                    <span class="btn-spinner loading loading-spinner loading-xs" style="display:none"></span>
+                </div>
+            </form>
+            <form method="POST" action="/plan/{{ plan.id }}/sync-compliance"
+                  onsubmit="this.querySelector('.btn-spinner').style.display='inline-block';">
+                <div class="flex items-center gap-1">
+                    <button class="btn btn-xs btn-outline">Sync compliance</button>
+                    <span class="btn-spinner loading loading-spinner loading-xs" style="display:none"></span>
+                </div>
+            </form>
+        </div>
         {% endif %}
         <button onclick="document.getElementById('delete-plan-modal').showModal()" class="btn btn-xs btn-ghost text-error">Delete plan</button>
     </div>
@@ -88,7 +97,8 @@
                 {% set over = day_hours > 0 and session_hours > day_hours %}
                 <a href="/plan/sessions/{{ s.id }}" class="relative flex flex-col gap-0.5 hover:bg-base-300 rounded p-1 -mx-1 transition-colors">
                     {% if s.steps %}<span class="absolute top-1 right-1 text-base-content/40 text-xs" title="Steps generated">≡</span>{% endif %}
-                    {% if s.icu_event_id %}<span class="absolute bottom-1 right-1 text-success text-xs" title="Synced to intervals.icu">✓</span>{% endif %}
+                    {% if s.icu_compliance is not none %}<span class="absolute bottom-1 right-1 text-xs font-medium {{ 'text-success' if s.icu_compliance >= 80 else 'text-warning' if s.icu_compliance >= 50 else 'text-error' }}" title="ICU compliance">{{ s.icu_compliance | int }}%</span>
+                    {% elif s.icu_event_id %}<span class="absolute bottom-1 right-1 text-success text-xs" title="Synced to intervals.icu">✓</span>{% endif %}
                     <span class="badge badge-xs {{ type_colors.get(s.session_type, 'badge-neutral') }}">{{ s.session_type }}</span>
                     <span class="text-xs font-medium leading-tight">{{ s.title }}</span>
                     <span class="text-xs {{ 'text-warning' if over else 'text-base-content/50' }}">{{ s.duration_min }}min · {{ s.tss_target }} TSS</span>

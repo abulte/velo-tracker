@@ -18,7 +18,7 @@ from climbs import detect_climbs
 from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration, build_rationale_prompt as _build_rationale_prompt
 from fit_export import session_to_fit as _session_to_fit
 from config import ZONE_BOUNDARIES
-from icu import sync_athlete as _sync_icu, _classify_level, push_workout_event as _push_icu_event, delete_workout_event as _delete_icu_event
+from icu import sync_athlete as _sync_icu, _classify_level, push_workout_event as _push_icu_event, delete_workout_event as _delete_icu_event, fetch_compliance as _fetch_icu_compliance
 from models import Activity, Route, UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession
 from routes import assign_route_to_all
 
@@ -843,7 +843,9 @@ def show_session(session_id: int):
     if s.steps:
         actual_sec = _calc_steps_duration(s.steps)
 
-    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta, zone_boundaries=ZONE_BOUNDARIES, actual_sec=actual_sec)
+    activity = session.get(Activity, s.activity_id) if s.activity_id else None
+
+    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta, zone_boundaries=ZONE_BOUNDARIES, actual_sec=actual_sec, activity=activity)
 
 
 @app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])
@@ -1027,6 +1029,59 @@ def push_plan_to_icu(plan_id: int):
         flash(f"{pushed} sessions pushed, {errors} failed — check logs.")
     else:
         flash(f"{pushed} session{'s' if pushed != 1 else ''} pushed to intervals.icu.")
+    return redirect(url_for("show_plan", plan_id=plan_id))
+
+
+@app.route("/plan/<int:plan_id>/sync-compliance", methods=["POST"])
+def sync_plan_compliance(plan_id: int):
+    db = get_db()
+    plan = db.get(TrainingPlan, plan_id)
+    if not plan:
+        return "Not found", 404
+    profile = db.get(UserProfile, 1)
+    if not profile or not profile.icu_athlete_id or not profile.icu_api_key:
+        flash("Set your intervals.icu credentials in Profile first.")
+        return redirect(url_for("show_plan", plan_id=plan_id))
+
+    # Collect sessions that have been pushed to ICU
+    weeks = db.exec(select(TrainingWeek).where(TrainingWeek.plan_id == plan_id)).all()
+    sessions_by_event: dict[str, "TrainingSession"] = {}
+    dates: list[datetime.date] = []
+    for week in weeks:
+        if not week.week_start:
+            continue
+        for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+            if s.icu_event_id:
+                sessions_by_event[s.icu_event_id] = s
+                dates.append(week.week_start + datetime.timedelta(days=_DAY_OFFSETS[s.day_of_week]))
+
+    if not sessions_by_event:
+        flash("No sessions have been pushed to intervals.icu yet.")
+        return redirect(url_for("show_plan", plan_id=plan_id))
+
+    oldest = min(dates)
+    newest = max(dates)
+    try:
+        compliance_map = _fetch_icu_compliance(
+            profile.icu_athlete_id, profile.icu_api_key,
+            set(sessions_by_event.keys()), oldest, newest,
+        )
+    except Exception as e:
+        app.logger.error("ICU compliance fetch failed: %s", e)
+        flash(f"Failed to fetch compliance from intervals.icu: {e}")
+        return redirect(url_for("show_plan", plan_id=plan_id))
+
+    updated = 0
+    for event_id, (compliance, garmin_id) in compliance_map.items():
+        s = sessions_by_event[event_id]
+        s.icu_compliance = compliance
+        activity = db.exec(select(Activity).where(Activity.garmin_id == garmin_id)).first()
+        if activity:
+            s.activity_id = activity.id
+        db.add(s)
+        updated += 1
+    db.commit()
+    flash(f"Compliance updated for {updated} session{'s' if updated != 1 else ''}.")
     return redirect(url_for("show_plan", plan_id=plan_id))
 
 
