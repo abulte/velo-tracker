@@ -142,12 +142,8 @@
                   class="flex flex-col gap-2">
                 <input type="hidden" name="garmin_id" value="{{ activity.garmin_id }}">
                 <input type="text" name="name" placeholder="Route name" required class="input input-bordered input-xs w-full">
-                <button type="submit" class="btn btn-xs btn-outline w-full">
-                    <span class="htmx-indicator" id="route-spinner">
-                        <span class="loading loading-spinner loading-xs"></span>
-                    </span>
-                    Save as route
-                </button>
+                <button type="submit" class="btn btn-xs btn-outline w-full">Save as route</button>
+                <span class="htmx-indicator loading loading-spinner loading-xs" id="route-spinner"></span>
             </form>
         </div>
         {% endif %}

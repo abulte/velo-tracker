@@ -12,6 +12,12 @@ a[target="_blank"]::after {
 .htmx-request .htmx-indicator,
 .htmx-indicator.htmx-request { display: inline-block; }
 
+/* loading-spinner uses background-color:currentColor — force white in dark themes */
+[data-theme="dim"] .loading,
+[data-theme="dark"] .loading {
+    color: rgba(255, 255, 255, 0.75) !important;
+}
+
 /* Map containers */
 #map, #heatmap {
     height: 400px;

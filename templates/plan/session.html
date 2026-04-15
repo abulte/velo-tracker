@@ -69,8 +69,11 @@
 
     {% if s.steps is none %}
     <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"
-          onsubmit="this.querySelector('button').classList.add('loading'); this.querySelector('button').disabled=true;">
-        <button class="btn btn-primary">Generate workout steps</button>
+          onsubmit="this.querySelector('.session-spinner').style.display='inline-block';">
+        <div class="flex items-center gap-3">
+            <button class="btn btn-primary">Generate workout steps</button>
+            <span class="session-spinner loading loading-spinner loading-sm" style="display:none"></span>
+        </div>
     </form>
     {% elif s.steps %}
     <div class="space-y-2">
@@ -95,12 +98,14 @@
         {% endfor %}
     </div>
 
-    <div class="mt-4">
-        <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"
-              onsubmit="this.querySelector('button').classList.add('loading'); this.querySelector('button').disabled=true;">
+    <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps" class="mt-4"
+          onsubmit="this.querySelector('.session-spinner').style.display='inline-block';">
+        <div class="flex items-center gap-3">
             <button class="btn btn-sm btn-ghost">Regenerate steps</button>
-        </form>
-    </div>
+            <span class="session-spinner loading loading-spinner loading-sm" style="display:none"></span>
+            <a href="/plan/sessions/{{ s.id }}/export.fit" class="btn btn-sm btn-outline">Download .fit</a>
+        </div>
+    </form>
     {% endif %}
 
     {% if s.notes %}

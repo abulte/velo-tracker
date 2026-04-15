@@ -23,12 +23,16 @@ exclude = ["alembic", ".venv"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+filterwarnings = [
+    "ignore::DeprecationWarning:fitparse",
+]
 
 [tool.ruff]
 exclude = ["alembic"]
 
 [dependency-groups]
 dev = [
+    "fitparse>=1.2.0",
     "pyright>=1.1.408",
     "pytest>=9.0.2",
     "ruff>=0.15.2",

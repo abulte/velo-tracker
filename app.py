@@ -8,7 +8,7 @@ from markupsafe import Markup
 
 import click
 from dotenv import load_dotenv
-from flask import Flask, Response, g, jsonify, render_template, redirect, url_for, request
+from flask import Flask, Response, flash, g, jsonify, render_template, redirect, url_for, request
 from flask_fenrir import create_fenrir_bp, secure_app
 from sqlalchemy import func
 from sqlmodel import Session, col, create_engine, select
@@ -16,8 +16,9 @@ from sqlmodel import Session, col, create_engine, select
 from cli import sync_activities
 from climbs import detect_climbs
 from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration, build_rationale_prompt as _build_rationale_prompt
+from fit_export import session_to_fit as _session_to_fit
 from config import ZONE_BOUNDARIES
-from icu import sync_athlete as _sync_icu, _classify_level
+from icu import sync_athlete as _sync_icu, _classify_level, push_workout_event as _push_icu_event, delete_workout_event as _delete_icu_event
 from models import Activity, Route, UserProfile, Goal, TrainingPlan, TrainingWeek, TrainingSession
 from routes import assign_route_to_all
 
@@ -507,12 +508,21 @@ def activity_gpx(garmin_id: str):
 
 
 _DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+_DAY_OFFSETS = {d: i for i, d in enumerate(_DAYS)}
 
 
-def _delete_plan(plan, db):
-    """Cascade-delete a plan and all its weeks and sessions."""
+def _delete_plan(plan, db, profile=None) -> None:
+    """Cascade-delete a plan and all its weeks and sessions.
+
+    If profile has ICU credentials, also deletes any pushed calendar events.
+    """
     for week in db.exec(select(TrainingWeek).where(TrainingWeek.plan_id == plan.id)).all():
         for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+            if s.icu_event_id and profile and profile.icu_athlete_id and profile.icu_api_key:
+                try:
+                    _delete_icu_event(profile.icu_athlete_id, profile.icu_api_key, s.icu_event_id)
+                except Exception as e:
+                    app.logger.warning("ICU delete failed for event %s: %s", s.icu_event_id, e)
             db.delete(s)
         db.delete(week)
     db.flush()
@@ -790,6 +800,12 @@ def show_plan(plan_id: int):
     )
 
     stale_weeks = [w for w in weeks if w.stale]
+    has_icu = bool(profile and profile.icu_athlete_id and profile.icu_api_key)
+    sessions_with_steps = sum(
+        1 for by_day in sessions_by_week.values()
+        for ss in by_day.values()
+        for s in ss if s.steps
+    )
 
     return render_template(
         "plan/show.html",
@@ -802,6 +818,8 @@ def show_plan(plan_id: int):
         stale_weeks=stale_weeks,
         days=_DAYS,
         timedelta=datetime.timedelta,
+        has_icu=has_icu,
+        sessions_with_steps=sessions_with_steps,
     )
 
 
@@ -853,6 +871,24 @@ def regenerate_session_steps(session_id: int):
     session.commit()
 
     return redirect(url_for("show_session", session_id=session_id))
+
+
+@app.route("/plan/sessions/<int:session_id>/export.fit")
+def export_session_fit(session_id: int):
+    db = get_db()
+    s = db.get(TrainingSession, session_id)
+    if not s or not s.steps:
+        return "Not found", 404
+    profile = db.get(UserProfile, 1)
+    if not profile or not profile.ftp:
+        return "FTP not set — add it on the Profile page", 400
+    fit_bytes = _session_to_fit(s.title, s.steps, profile.ftp)
+    safe_name = "".join(c if c.isalnum() or c in " -" else "_" for c in s.title).strip()
+    return Response(
+        fit_bytes,
+        mimetype="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.fit"'},
+    )
 
 
 @app.route("/plan/weeks/<int:week_id>/availability", methods=["POST"])
@@ -923,6 +959,11 @@ def regenerate_stale(plan_id: int):
         if not new_data:
             continue
         for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+            if s.icu_event_id and profile and profile.icu_athlete_id and profile.icu_api_key:
+                try:
+                    _delete_icu_event(profile.icu_athlete_id, profile.icu_api_key, s.icu_event_id)
+                except Exception as e:
+                    app.logger.warning("ICU delete failed for event %s: %s", s.icu_event_id, e)
             db.delete(s)
         for s in new_data.get("sessions", []):
             db.add(TrainingSession(
@@ -944,13 +985,59 @@ def regenerate_stale(plan_id: int):
     return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
 
 
+@app.route("/plan/<int:plan_id>/push-to-icu", methods=["POST"])
+def push_plan_to_icu(plan_id: int):
+    db = get_db()
+    plan = db.get(TrainingPlan, plan_id)
+    if not plan:
+        return "Not found", 404
+    profile = db.get(UserProfile, 1)
+    if not profile or not profile.icu_athlete_id or not profile.icu_api_key:
+        flash("Set your intervals.icu credentials in Profile first.")
+        return redirect(url_for("show_plan", plan_id=plan_id))
+    if not profile.ftp:
+        flash("Set your FTP in Profile before pushing workouts to intervals.icu.")
+        return redirect(url_for("show_plan", plan_id=plan_id))
+
+    weeks = db.exec(select(TrainingWeek).where(TrainingWeek.plan_id == plan_id)).all()
+    pushed = 0
+    errors = 0
+    for week in weeks:
+        if not week.week_start:
+            continue
+        for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+            if not s.steps:
+                continue
+            session_date = week.week_start + datetime.timedelta(days=_DAY_OFFSETS[s.day_of_week])
+            try:
+                event_id = _push_icu_event(
+                    profile.icu_athlete_id, profile.icu_api_key,
+                    session_date, s.title, s.steps, s.tss_target, s.duration_min,
+                    ftp=profile.ftp,
+                )
+                s.icu_event_id = event_id
+                db.add(s)
+                pushed += 1
+            except Exception as e:
+                app.logger.error("ICU push failed for session %s: %s", s.id, e)
+                errors += 1
+
+    db.commit()
+    if errors:
+        flash(f"{pushed} sessions pushed, {errors} failed — check logs.")
+    else:
+        flash(f"{pushed} session{'s' if pushed != 1 else ''} pushed to intervals.icu.")
+    return redirect(url_for("show_plan", plan_id=plan_id))
+
+
 @app.route("/plan/<int:plan_id>/delete", methods=["POST"])
 def delete_plan(plan_id: int):
     db = get_db()
     plan = db.get(TrainingPlan, plan_id)
     if not plan:
         return "Not found", 404
-    _delete_plan(plan, db)
+    profile = db.get(UserProfile, 1)
+    _delete_plan(plan, db, profile=profile)
     db.commit()
     return redirect(url_for("list_goals"))
 

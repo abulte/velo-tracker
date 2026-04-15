@@ -1,7 +1,8 @@
 <form hx-post="/goals/{{ goal.id }}/generate-plan"
       hx-target="#goal-actions-{{ goal.id }}"
       hx-swap="outerHTML"
-      hx-on::before-request="this.querySelector('[type=submit]').classList.add('loading'); this.querySelector('[type=submit]').disabled=true;">
+      hx-indicator="#gen-spinner-{{ goal.id }}"
+      hx-disabled-elt="[type=submit]">
     <input type="hidden" name="start_date" value="{{ start_date }}" />
     <input type="hidden" name="start_week_type" value="{{ start_week_type }}" />
     <div class="form-control mb-4">
@@ -9,8 +10,9 @@
         <textarea name="custom_prompt" rows="16"
                   class="textarea textarea-bordered font-mono text-xs leading-relaxed w-full">{{ prompt }}</textarea>
     </div>
-    <div class="modal-action">
+    <div class="modal-action items-center">
         <button type="submit" class="btn btn-primary">Generate</button>
+        <span id="gen-spinner-{{ goal.id }}" class="htmx-indicator loading loading-spinner loading-sm"></span>
         <button type="button" onclick="this.closest('dialog').close()" class="btn">Cancel</button>
     </div>
 </form>

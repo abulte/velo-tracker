@@ -67,6 +67,7 @@ class TrainingSession(SQLModel, table=True):
     # Structured workout steps — generated on demand when session detail is first viewed.
     # Each step: {type, duration_sec, power_low, power_high, repeat?, cadence?, description?}
     steps: Optional[list[dict[str, object]]] = Field(default=None, sa_column=Column(JSON))
+    icu_event_id: Optional[str] = None  # intervals.icu calendar event id when pushed
 
 
 class Route(SQLModel, table=True):

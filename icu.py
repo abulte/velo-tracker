@@ -1,19 +1,40 @@
 """intervals.icu API sync — fetch athlete metrics and classify level."""
+import base64
 import datetime
+import json
 import logging
 
 import requests
+
+from fit_export import session_to_fit
 
 log = logging.getLogger(__name__)
 
 _BASE = "https://intervals.icu/api/v1"
 
 
-def _get(athlete_id: str, api_key: str, path: str, **params):
+def _get(athlete_id: str, api_key: str, path: str, **params) -> dict:
     url = f"{_BASE}/athlete/{athlete_id}/{path}"
     r = requests.get(url, auth=("API_KEY", api_key), params=params, timeout=15)
     r.raise_for_status()
-    return r.json()
+    return r.json()  # type: ignore[no-any-return]
+
+
+def _post(athlete_id: str, api_key: str, path: str, payload: object) -> object:
+    url = f"{_BASE}/athlete/{athlete_id}/{path}"
+    r = requests.post(url, auth=("API_KEY", api_key), data=json.dumps(payload).encode(),
+                      headers={"Content-Type": "application/json"}, timeout=15)
+    if not r.ok:
+        log.error("ICU POST %s → %s: %s", path, r.status_code, r.text)
+    r.raise_for_status()
+    return r.json()  # type: ignore[no-any-return]
+
+
+def _del(athlete_id: str, api_key: str, path: str) -> None:
+    url = f"{_BASE}/athlete/{athlete_id}/{path}"
+    r = requests.delete(url, auth=("API_KEY", api_key), timeout=15)
+    if r.status_code != 404:
+        r.raise_for_status()
 
 
 def _classify_level(peak_ctl: float, watts_per_kg: float | None) -> str:
@@ -59,3 +80,42 @@ def sync_athlete(athlete_id: str, api_key: str) -> dict:
         "athlete_level": athlete_level,
         "icu_synced_at": datetime.datetime.utcnow(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Workout calendar event push
+# ---------------------------------------------------------------------------
+
+def push_workout_event(
+    athlete_id: str,
+    api_key: str,
+    session_date: datetime.date,
+    title: str,
+    steps: list[dict],
+    tss_target: int,
+    duration_min: int,
+    ftp: int,
+) -> str:
+    """Create a workout calendar event in intervals.icu. Returns the event id."""
+    fit_b64 = base64.b64encode(session_to_fit(title, steps, ftp)).decode()
+    event = {
+        "category": "WORKOUT",
+        "start_date_local": f"{session_date.isoformat()}T00:00:00",
+        "name": title,
+        "file_contents_base64": fit_b64,
+        "filename": "workout.fit",
+        "type": "Ride",
+        "moving_time": duration_min * 60,
+        "icu_training_load": tss_target,
+    }
+    # POST /events takes a single EventEx object (not array — use /events/bulk for batch)
+    resp = _post(athlete_id, api_key, "events", event)
+    assert isinstance(resp, dict)
+    log.info("icu push: event %s → %s on %s", resp.get("id"), title, session_date)
+    return str(resp["id"])
+
+
+def delete_workout_event(athlete_id: str, api_key: str, event_id: str) -> None:
+    """Delete a workout calendar event from intervals.icu. Silently ignores 404."""
+    _del(athlete_id, api_key, f"events/{event_id}")
+    log.info("icu delete: event %s", event_id)

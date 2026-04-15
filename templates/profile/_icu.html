@@ -25,11 +25,15 @@
     <p class="text-xs text-base-content/40">Synced {{ profile.icu_synced_at.strftime('%Y-%m-%d %H:%M') }}</p>
     {% endif %}
 
-    <button class="btn btn-sm btn-outline"
-            hx-post="/profile/sync-icu"
-            hx-target="#icu-section"
-            hx-swap="outerHTML"
-            hx-on::before-request="this.classList.add('loading'); this.disabled=true;">
-        {% if profile and profile.icu_synced_at %}Sync again{% else %}Sync from intervals.icu{% endif %}
-    </button>
+    <div class="flex items-center gap-3">
+        <button class="btn btn-sm btn-outline"
+                hx-post="/profile/sync-icu"
+                hx-target="#icu-section"
+                hx-swap="outerHTML"
+                hx-indicator="#icu-spinner"
+                hx-disabled-elt="button">
+            {% if profile and profile.icu_synced_at %}Sync again{% else %}Sync from intervals.icu{% endif %}
+        </button>
+        <span id="icu-spinner" class="htmx-indicator loading loading-spinner loading-sm"></span>
+    </div>
 </div>

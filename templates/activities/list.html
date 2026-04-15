@@ -31,12 +31,8 @@
         <input type="date" id="since" name="since"
                class="input input-bordered input-sm"
                value="{{ (today - timedelta(days=7)).isoformat() }}">
-        <button type="submit" class="btn btn-primary btn-sm">
-            <span class="htmx-indicator" id="sync-spinner">
-                <span class="loading loading-spinner loading-sm"></span>
-            </span>
-            Sync from Garmin
-        </button>
+        <button type="submit" class="btn btn-primary btn-sm">Sync from Garmin</button>
+        <span class="htmx-indicator loading loading-spinner loading-sm" id="sync-spinner"></span>
     </form>
     <div id="sync-result"></div>
 </div>
