@@ -26,17 +26,25 @@
 ## Enhancements
 
 - [x] plan generation: pre-populate prompt in UI (as of today), allow human review/edit before submitting to Claude
+- [ ] delete a session from plan
+- [ ] delete generated steps from session (needed?)
+- [ ] show weekly plan tss vs planned tss vs matched activites tss
+- [ ] show weekly expected time in zones vs matched activities time in zones
+- [ ] maybe dual view for plan: one tab calendar, one tab metrics / progress
 
 ## Phase 4 — Activity association (plan vs actual)
 
-- [ ] `SessionCompletion` model: session_id, activity_id, status (completed/skipped/partial), actual_tss, actual_duration, notes
-- [ ] migration: add `session_completion` table
-- [ ] auto-matching logic: after sync, find TrainingSession on same day (±1 day) with TSS within 30%
-- [ ] `GET /plan/unmatched` — HTMX panel with proposed matches
-- [ ] `POST /plan/sessions/<id>/link/<activity_id>` — confirm association
+- [x] `TrainingSession.activity_id` — foreign key to Activity
+- [x] Push workouts to ICU as calendar events
+- [x] ICU auto-pairs activities to events (Garmin auto-sync)
+- [x] Sync compliance from ICU → auto-links Activity to TrainingSession.activity_id
+- [x] Guards: skip push if session_date < today or activity_id is set
+- [x] Delete orphaned ICU events on re-push
+- [x] Unified sync flow: Garmin activities → compliance → linked sessions
+- [ ] `SessionCompletion` model: session_id, activity_id, status (completed/skipped/partial), actual_tss, actual_duration, notes (optional — may not need if activity_id + compliance sufficient)
+- [ ] `GET /plan/unmatched` — HTMX panel with proposed matches (for manual link if auto-pairing misses)
 - [ ] `POST /plan/sessions/<id>/skip` — mark skipped
-- [ ] `POST /plan/sessions/<id>/dismiss` — dismiss proposal
-- [ ] plan calendar: color-code session cards (green=completed, yellow=partial, grey=upcoming, red=missed)
+- [ ] plan calendar: color-code session cards (green=completed via activity_id, grey=upcoming, red=missed)
 - [ ] dashboard: "Today's Session" card + pending confirmations badge
 
 ## Phase 5 — Adaptive plan adjustment
