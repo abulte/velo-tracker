@@ -40,6 +40,43 @@ def test_push_returns_event_id():
     assert event_id == "42"
 
 
+def test_push_skips_past_sessions():
+    """Sessions in the past should not be pushed."""
+    with _mock_post({"id": 42}) as mock:
+        event_id = push_workout_event(
+            "i123", "key", datetime.date(2025, 12, 31),  # past date
+            "Test session", STEPS, tss_target=80, duration_min=40, ftp=220,
+        )
+    assert event_id is None
+    mock.assert_not_called()
+
+
+def test_push_skips_linked_activities():
+    """Sessions already linked to activities should not be pushed."""
+    with _mock_post({"id": 42}) as mock:
+        event_id = push_workout_event(
+            "i123", "key", datetime.date(2026, 5, 1),
+            "Test session", STEPS, tss_target=80, duration_min=40, ftp=220,
+            activity_id=123,  # linked to an activity
+        )
+    assert event_id is None
+    mock.assert_not_called()
+
+
+def test_push_deletes_old_orphaned_event():
+    """When pushing a new event, delete the old orphaned one if it exists."""
+    with _mock_post({"id": 99}):
+        with _mock_delete() as mock_del:
+            event_id = push_workout_event(
+                "i123", "key", datetime.date(2026, 5, 1),
+                "Test session", STEPS, tss_target=80, duration_min=40, ftp=220,
+                old_icu_event_id="old-event-42",
+            )
+    assert event_id == "99"
+    mock_del.assert_called_once()
+    assert "events/old-event-42" in mock_del.call_args.args[0]
+
+
 def test_push_sends_correct_fields():
     with _mock_post({"id": 1}) as mock:
         push_workout_event(

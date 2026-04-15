@@ -1016,10 +1016,13 @@ def push_plan_to_icu(plan_id: int):
                     profile.icu_athlete_id, profile.icu_api_key,
                     session_date, s.title, s.steps, s.tss_target, s.duration_min,
                     ftp=profile.ftp,
+                    activity_id=s.activity_id,
+                    old_icu_event_id=s.icu_event_id,
                 )
-                s.icu_event_id = event_id
-                db.add(s)
-                pushed += 1
+                if event_id is not None:
+                    s.icu_event_id = event_id
+                    db.add(s)
+                    pushed += 1
             except Exception as e:
                 app.logger.error("ICU push failed for session %s: %s", s.id, e)
                 errors += 1

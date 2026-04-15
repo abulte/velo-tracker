@@ -102,8 +102,32 @@ def push_workout_event(
     tss_target: int,
     duration_min: int,
     ftp: int,
-) -> str:
-    """Create a workout calendar event in intervals.icu. Returns the event id."""
+    activity_id: object = None,
+    old_icu_event_id: str | None = None,
+) -> str | None:
+    """
+    Create a workout calendar event in intervals.icu. Returns the event id, or None if skipped.
+
+    Skips if:
+    - session_date is in the past (already happened)
+    - activity_id is set (session already paired with an activity)
+
+    If pushing a new event and old_icu_event_id exists, deletes the old orphaned event first.
+    """
+    # Skip if session is in the past
+    if session_date < datetime.date.today():
+        log.info("icu push skipped: session %s is in the past", title)
+        return None
+
+    # Skip if session is already linked to an activity
+    if activity_id is not None:
+        log.info("icu push skipped: session %s already linked to activity", title)
+        return None
+
+    # Delete old orphaned event if one exists
+    if old_icu_event_id:
+        delete_workout_event(athlete_id, api_key, old_icu_event_id)
+
     fit_b64 = base64.b64encode(session_to_fit(title, steps, ftp)).decode()
     event = {
         "category": "WORKOUT",
