@@ -15,19 +15,17 @@
         <div class="text-sm text-base-content/50">{{ weeks | length }} weeks · target {{ goal.target_date.strftime('%-d %b %Y') }}</div>
         {% if has_icu and sessions_with_steps > 0 %}
         <div class="flex items-center gap-2">
-            <form method="POST" action="/plan/{{ plan.id }}/push-to-icu"
-                  onsubmit="this.querySelector('.btn-spinner').style.display='inline-block';">
-                <div class="flex items-center gap-1">
-                    <button class="btn btn-xs btn-outline">Push to ICU ({{ sessions_with_steps }})</button>
-                    <span class="btn-spinner loading loading-spinner loading-xs" style="display:none"></span>
-                </div>
+            <form method="POST" action="/plan/{{ plan.id }}/push-to-icu" hx-boost="true">
+                <button class="btn btn-xs btn-outline">
+                    Push to ICU ({{ sessions_with_steps }})
+                    <span class="htmx-indicator loading loading-spinner loading-xs"></span>
+                </button>
             </form>
-            <form method="POST" action="/plan/{{ plan.id }}/sync"
-                  onsubmit="this.querySelector('.btn-spinner').style.display='inline-block';">
-                <div class="flex items-center gap-1">
-                    <button class="btn btn-xs btn-outline">Sync activities</button>
-                    <span class="btn-spinner loading loading-spinner loading-xs" style="display:none"></span>
-                </div>
+            <form method="POST" action="/plan/{{ plan.id }}/sync" hx-boost="true">
+                <button class="btn btn-xs btn-outline">
+                    Sync activities
+                    <span class="htmx-indicator loading loading-spinner loading-xs"></span>
+                </button>
             </form>
         </div>
         {% endif %}

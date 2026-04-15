@@ -31,8 +31,10 @@
         <input type="date" id="since" name="since"
                class="input input-bordered input-sm"
                value="{{ (today - timedelta(days=7)).isoformat() }}">
-        <button type="submit" class="btn btn-primary btn-sm">Sync activities</button>
-        <span class="htmx-indicator loading loading-spinner loading-sm" id="sync-spinner"></span>
+        <button type="submit" class="btn btn-primary btn-sm">
+            Sync activities
+            <span class="htmx-indicator loading loading-spinner loading-sm" id="sync-spinner"></span>
+        </button>
     </form>
     <div id="sync-result"></div>
 </div>
