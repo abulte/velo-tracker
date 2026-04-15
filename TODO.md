@@ -42,3 +42,4 @@
 
 - [ ] `coach.adapt_plan()`: context = last 2–4 weeks actual vs planned, current PMC vs targets; revise upcoming weeks only
 - [ ] `POST /plan/adapt` — HTMX, show diff of changes with accept/reject UI
+- [ ] pull `compliance` (float) from ICU Activity.paired_event_id after Garmin sync; store on TrainingSession — feeds adaptation prompt with "did athlete do the session?" signal alongside CTL/ATL/TSB

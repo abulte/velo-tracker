@@ -87,7 +87,7 @@ def test_fit_step_count():
     assert len(parsed) == 3
 
 
-def test_fit_set_unrolled():
+def test_fit_set_has_repeat_step():
     steps = [
         {"type": "set", "repeat": 4, "steps": [
             {"type": "active", "duration_sec": 300, "zone": "z4", "description": "On"},
@@ -95,7 +95,12 @@ def test_fit_set_unrolled():
         ]},
     ]
     parsed = _parse_fit(session_to_fit("Intervals", steps, ftp=220))
-    assert len(parsed) == 8  # 4 × (on + off)
+    # 2 inner steps + 1 REPEAT_UNTIL_STEPS_CMPLT marker (not 4×2 unrolled)
+    assert len(parsed) == 3
+    repeat = parsed[2]
+    assert repeat["duration_type"] == "repeat_until_steps_cmplt"
+    assert repeat["duration_step"] == 0    # loop back to step 0
+    assert repeat["repeat_steps"] == 4     # 4 repetitions
 
 
 def test_fit_power_targets_no_sentinel():

@@ -1,3 +1,4 @@
+- ALWAYS import on top
 - use uv for everything python
 - uv can connect to local db with .env loaded
 - ALWAYS run mise lint before validating modifications

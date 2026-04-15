@@ -57,6 +57,66 @@ def _flatten(steps: list[dict]) -> list[dict]:
     return flat
 
 
+def _step_name(step: dict) -> str:
+    """Short step name for FIT (max 15 chars): type + zone."""
+    stype = str(step.get("type", "step")).capitalize()
+    zone = str(step.get("zone", "")).upper()
+    return (f"{stype} {zone}" if zone else stype)[:15]
+
+
+def _count_steps(steps: list[dict]) -> int:
+    """Count total FIT step records including repeat marker steps."""
+    n = 0
+    for step in steps:
+        if step.get("type") == "set":
+            n += _count_steps(step.get("steps", []))
+            n += 1  # the repeat marker step itself
+        else:
+            n += 1
+    return n
+
+
+def _emit_steps(steps: list[dict], ftp: int, body: bytearray, idx: int) -> int:
+    """Recursively emit workout_step records into body, returning next step index."""
+    for step in steps:
+        if step.get("type") == "set":
+            inner = step.get("steps", [])
+            repeat = int(step.get("repeat", 1))
+            first_idx = idx
+            idx = _emit_steps(inner, ftp, body, idx)
+            # REPEAT_UNTIL_STEPS_CMPLT marker:
+            #   duration_value = step_index of first step in the group
+            #   target_value   = repeat count
+            body += struct.pack("<B", 0x02)
+            body += struct.pack("<H", idx)         # message_index
+            body += _str16("")                     # name (empty for repeat marker)
+            body += struct.pack("<B", 6)           # duration_type = REPEAT_UNTIL_STEPS_CMPLT
+            body += struct.pack("<I", first_idx)   # duration_value = loop-back step index
+            body += struct.pack("<B", 0)           # target_type = OPEN
+            body += struct.pack("<I", repeat)      # target_value = repeat count
+            body += struct.pack("<I", 0)           # custom_target_value_low
+            body += struct.pack("<I", 0)           # custom_target_value_high
+            body += struct.pack("<B", 0)           # intensity = ACTIVE
+            idx += 1
+        else:
+            zone = str(step.get("zone", "z2"))
+            low_w, high_w = _zone_watts(zone, ftp)
+            dur_s = int(step.get("duration_sec", 0))
+            intensity = _INTENSITY_MAP.get(str(step.get("type", "")).lower(), ACTIVE)
+            body += struct.pack("<B", 0x02)
+            body += struct.pack("<H", idx)
+            body += _str16(_step_name(step))
+            body += struct.pack("<B", 0)             # duration_type = TIME
+            body += struct.pack("<I", dur_s * 1000)  # duration in milliseconds
+            body += struct.pack("<B", 4)             # target_type = POWER
+            body += struct.pack("<I", 0)             # target_value = 0 (use custom range)
+            body += struct.pack("<I", low_w + 1000)  # custom_target_value_low  (+1000 offset)
+            body += struct.pack("<I", high_w + 1000) # custom_target_value_high (+1000 offset)
+            body += struct.pack("<B", intensity)
+            idx += 1
+    return idx
+
+
 def session_to_fit(title: str, steps: list[dict], ftp: int) -> bytes:
     """
     Convert a session's step list to a Garmin-compatible .fit workout file.
@@ -68,7 +128,7 @@ def session_to_fit(title: str, steps: list[dict], ftp: int) -> bytes:
 
     Returns raw .fit file bytes, compatible with Garmin USB and intervals.icu import.
     """
-    flat = _flatten(steps)
+    n_steps = _count_steps(steps)
     ts = int((datetime.datetime.now(datetime.timezone.utc) - _FIT_EPOCH).total_seconds())
 
     body = bytearray()
@@ -90,7 +150,7 @@ def session_to_fit(title: str, steps: list[dict], ftp: int) -> bytes:
     body += struct.pack("<BBB", 8, 16, 0x07)  # wkt_name string[16]
     body += struct.pack("<B", 0x01)
     body += struct.pack("<B", 2)               # sport = cycling
-    body += struct.pack("<H", len(flat))
+    body += struct.pack("<H", n_steps)
     body += _str16(title)
 
     # Local message 2: workout_step (mesg 27) — field numbers must match FIT SDK exactly
@@ -98,30 +158,14 @@ def session_to_fit(title: str, steps: list[dict], ftp: int) -> bytes:
     body += struct.pack("<BBB", 254,  2, 0x84)  # message_index  uint16
     body += struct.pack("<BBB",   0, 16, 0x07)  # wkt_step_name  string[16]
     body += struct.pack("<BBB",   1,  1, 0x00)  # duration_type  uint8
-    body += struct.pack("<BBB",   2,  4, 0x86)  # duration_value uint32 (milliseconds)
+    body += struct.pack("<BBB",   2,  4, 0x86)  # duration_value uint32
     body += struct.pack("<BBB",   3,  1, 0x00)  # target_type    uint8
     body += struct.pack("<BBB",   4,  4, 0x86)  # target_value   uint32
     body += struct.pack("<BBB",   5,  4, 0x86)  # custom_target_value_low  uint32
     body += struct.pack("<BBB",   6,  4, 0x86)  # custom_target_value_high uint32
     body += struct.pack("<BBB",   7,  1, 0x00)  # intensity      uint8
 
-    for idx, step in enumerate(flat):
-        zone = str(step.get("zone", "z2"))
-        low_w, high_w = _zone_watts(zone, ftp)
-        dur_s = int(step.get("duration_sec", 0))
-        intensity = _INTENSITY_MAP.get(str(step.get("type", "")).lower(), ACTIVE)
-        name = str(step.get("description") or step.get("type") or "step")
-
-        body += struct.pack("<B", 0x02)
-        body += struct.pack("<H", idx)
-        body += _str16(name)
-        body += struct.pack("<B", 0)             # duration_type = TIME
-        body += struct.pack("<I", dur_s * 1000)  # duration in milliseconds
-        body += struct.pack("<B", 4)             # target_type = POWER
-        body += struct.pack("<I", 0)             # target_value = 0 (use custom range)
-        body += struct.pack("<I", low_w + 1000)  # custom_target_value_low  (+1000 offset)
-        body += struct.pack("<I", high_w + 1000) # custom_target_value_high (+1000 offset)
-        body += struct.pack("<B", intensity)
+    _emit_steps(steps, ftp, body, 0)
 
     data_size = len(body)
     hdr = struct.pack("<BBHI4s", 14, 0x10, 0x083C, data_size, b".FIT")

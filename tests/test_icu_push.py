@@ -1,6 +1,13 @@
 """Tests for intervals.icu workout push/delete."""
+import base64
 import datetime
+import json
+import os
+import tempfile
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
+
+from fitparse import FitFile
 
 from icu import delete_workout_event, push_workout_event
 
@@ -39,7 +46,6 @@ def test_push_sends_correct_fields():
             "i123", "key", datetime.date(2026, 5, 1),
             "Test session", STEPS, tss_target=80, duration_min=40, ftp=220,
         )
-    import json
     payload = json.loads(mock.call_args.kwargs["data"].decode())
     assert payload["category"] == "WORKOUT"
     assert payload["start_date_local"] == "2026-05-01T00:00:00"
@@ -52,13 +58,11 @@ def test_push_sends_correct_fields():
 
 
 def test_push_fit_is_valid_base64():
-    import base64
     with _mock_post({"id": 1}) as mock:
         push_workout_event(
             "i123", "key", datetime.date(2026, 5, 1),
             "Test", STEPS, tss_target=50, duration_min=30, ftp=200,
         )
-    import json
     payload = json.loads(mock.call_args.kwargs["data"].decode())
     decoded = base64.b64decode(payload["file_contents_base64"])
     assert decoded[0] == 14           # header size
@@ -75,3 +79,32 @@ def test_delete_calls_correct_url():
 def test_delete_ignores_404():
     with _mock_delete(status_code=404):
         delete_workout_event("i123", "key", "missing-event")  # must not raise
+
+
+def test_push_set_produces_repeat_step():
+    """A set in the steps list must produce a REPEAT_UNTIL_STEPS_CMPLT step in the FIT file."""
+    steps = [
+        {"type": "set", "repeat": 3, "steps": [
+            {"type": "active", "duration_sec": 300, "zone": "z4", "description": "On"},
+            {"type": "rest",   "duration_sec": 120, "zone": "z1", "description": "Off"},
+        ]},
+    ]
+    with _mock_post({"id": 1}) as mock:
+        push_workout_event("i123", "key", datetime.date(2026, 5, 1),
+                           "Intervals", steps, tss_target=60, duration_min=30, ftp=220)
+    payload = json.loads(mock.call_args.kwargs["data"].decode())
+    fit_bytes = base64.b64decode(payload["file_contents_base64"])
+
+    with tempfile.NamedTemporaryFile(suffix=".fit", delete=False) as f:
+        f.write(fit_bytes)
+        path = f.name
+    try:
+        workout_steps = [cast(Any, m).get_values()
+                         for m in FitFile(path).get_messages("workout_step")]
+    finally:
+        os.unlink(path)
+
+    assert len(workout_steps) == 3  # active + rest + repeat marker
+    repeat = workout_steps[2]
+    assert repeat["duration_type"] == "repeat_until_steps_cmplt"
+    assert repeat["repeat_steps"] == 3
