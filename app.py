@@ -15,7 +15,7 @@ from sqlmodel import Session, col, create_engine, select
 
 from cli import sync_activities
 from climbs import detect_climbs
-from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration, build_rationale_prompt as _build_rationale_prompt
+from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration, _calc_steps_tss, build_rationale_prompt as _build_rationale_prompt
 from fit_export import session_to_fit as _session_to_fit
 from config import ZONE_BOUNDARIES
 from icu import sync_athlete as _sync_icu, _classify_level, push_workout_event as _push_icu_event, delete_workout_event as _delete_icu_event, fetch_compliance as _fetch_icu_compliance
@@ -58,6 +58,12 @@ def get_db() -> Session:
     if "db" not in g:
         g.db = Session(engine)
     return g.db
+
+
+def _get_user_ftp(db: Session) -> int | None:
+    """Get the current user's FTP, or None if not set."""
+    profile = db.get(UserProfile, 1)
+    return profile.ftp if profile else None
 
 
 @app.teardown_appcontext
@@ -805,6 +811,29 @@ def show_plan(plan_id: int):
 
     avail_by_week = {week.id: _resolve_week_hours(week, profile) for week in weeks}
 
+    # Calculate TSS metrics per week: master plan TSS, generated steps TSS, realized TSS
+    tss_by_week = {}
+    for week in weeks:
+        plan_tss = 0
+        steps_tss = 0
+        realized_tss = 0.0
+
+        for by_day in [sessions_by_week[week.id][d] for d in _DAYS]:
+            for s in by_day:
+                plan_tss += s.tss_target
+                if s.steps_tss:
+                    steps_tss += s.steps_tss
+                if s.activity_id:
+                    activity = session.get(Activity, s.activity_id)
+                    if activity and activity.tss:
+                        realized_tss += activity.tss
+
+        tss_by_week[week.id] = {
+            "plan": plan_tss,
+            "steps": steps_tss,
+            "realized": round(realized_tss),
+        }
+
     # Determine current week number in plan
     today = datetime.date.today()
     current_week_num = next(
@@ -827,6 +856,7 @@ def show_plan(plan_id: int):
         weeks=weeks,
         sessions_by_week=sessions_by_week,
         avail_by_week=avail_by_week,
+        tss_by_week=tss_by_week,
         current_week_num=current_week_num,
         stale_weeks=stale_weeks,
         days=_DAYS,
@@ -863,17 +893,17 @@ def show_session(session_id: int):
 
 @app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])
 def regenerate_session_steps(session_id: int):
-    session = get_db()
-    s = session.get(TrainingSession, session_id)
+    db = get_db()
+    s = db.get(TrainingSession, session_id)
     if not s:
         return "Not found", 404
-    week = session.get(TrainingWeek, s.week_id)
+    week = db.get(TrainingWeek, s.week_id)
     if not week:
         return "Not found", 404
-    plan = session.get(TrainingPlan, week.plan_id)
+    plan = db.get(TrainingPlan, week.plan_id)
     if not plan:
         return "Not found", 404
-    siblings = session.exec(
+    siblings = db.exec(
         select(TrainingSession).where(
             TrainingSession.week_id == s.week_id,
             TrainingSession.id != s.id,
@@ -882,8 +912,12 @@ def regenerate_session_steps(session_id: int):
     steps = generate_session_steps(s, week, plan, siblings=siblings)
     assert isinstance(steps, list)
     s.steps = steps
-    session.add(s)
-    session.commit()
+    # Calculate TSS from generated steps
+    ftp = _get_user_ftp(db)
+    if ftp:
+        s.steps_tss = _calc_steps_tss(steps, ftp)
+    db.add(s)
+    db.commit()
 
     return redirect(url_for("show_session", session_id=session_id))
 

@@ -1,5 +1,7 @@
 - ALWAYS import on top
 - use uv for everything python
 - uv can connect to local db with .env loaded
+  - DB query snippet: `cd velo-tracker && uv run python3 -c "import os; from pathlib import Path; from dotenv import load_dotenv; load_dotenv(Path.cwd() / '.env'); from sqlmodel import Session, create_engine; from sqlalchemy import text; db_url = os.getenv('DATABASE_URL'); db_url = db_url.replace('postgres://', 'postgresql://', 1) if db_url.startswith('postgres://') else db_url; engine = create_engine(db_url); [print(r) for r in Session(engine).exec(text('QUERY_HERE'))]"`
 - ALWAYS run mise lint before validating modifications
 - NEVER ignore type problems silently, discuss with your user if too hard
+- use mise lint and mise test cmds

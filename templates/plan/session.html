@@ -62,22 +62,37 @@
             {% if session_date %}{{ session_date.strftime('%-d %b %Y') }}{% else %}{{ s.day_of_week | capitalize }} · Week {{ week.week_number }}{% endif %}
         </span>
     </div>
-    <h1 class="text-2xl font-bold mb-1">{{ s.title }}</h1>
-    <p class="text-base-content/50 text-sm mb-2">
-      {{ (s.duration_min * 60) | fmt_dur }}{% if actual_sec is not none and actual_sec != s.duration_min * 60 %} <span class="{% if (actual_sec - s.duration_min * 60) | abs > 60 %}text-warning{% endif %}">({{ actual_sec | fmt_dur }})</span>{% endif %} · {{ s.tss_target }} TSS{% if ftp %} · FTP {{ ftp }}W{% endif %}
-    </p>
-    {% if s.icu_compliance is not none or activity %}
-    <div class="flex items-center gap-3 text-sm mb-6">
+    <h1 class="text-2xl font-bold mb-4">{{ s.title }}</h1>
+
+    <!-- Session Info -->
+    <dl class="space-y-3 text-sm mb-6">
+        <div class="flex justify-between gap-4">
+            <dt class="text-base-content/60">Duration</dt>
+            <dd class="font-medium tabular-nums">
+                <span class="text-base-content/60">Planned</span> {{ (s.duration_min * 60) | fmt_dur }}{% if activity and activity.moving_time %} · <span class="text-base-content/60">Actual</span> {{ activity.moving_time | fmt_dur }}{% endif %}
+            </dd>
+        </div>
+        <div class="flex justify-between gap-4">
+            <dt class="text-base-content/60">TSS</dt>
+            <dd class="font-medium tabular-nums text-right text-sm">
+                <span class="text-base-content/60">Master</span> {{ s.tss_target }}{% if s.steps_tss is not none %} · <span class="text-base-content/60">Steps</span> {{ s.steps_tss }}{% endif %}{% if activity and activity.tss %} · <span class="text-base-content/60">Realized</span> {{ activity.tss | int }}{% endif %}
+            </dd>
+        </div>
         {% if s.icu_compliance is not none %}
-        <span class="font-medium {{ 'text-success' if s.icu_compliance >= 80 else 'text-warning' if s.icu_compliance >= 50 else 'text-error' }}">{{ s.icu_compliance | int }}% compliance</span>
+        <div class="flex justify-between gap-4">
+            <dt class="text-base-content/60">Compliance</dt>
+            <dd class="font-semibold {{ 'text-success' if s.icu_compliance >= 80 else 'text-warning' if s.icu_compliance >= 50 else 'text-error' }}">{{ s.icu_compliance | int }}%</dd>
+        </div>
         {% endif %}
         {% if activity %}
-        <a href="/activities/{{ activity.garmin_id }}" class="link link-hover">🚴 {{ activity.name }}{% if activity.tss %} · {{ activity.tss | int }} TSS{% endif %}{% if activity.moving_time %} · {{ activity.moving_time | fmt_dur }}{% endif %}</a>
+        <div class="flex justify-between gap-4">
+            <dt class="text-base-content/60">Activity</dt>
+            <dd class="font-medium">
+                <a href="/activities/{{ activity.garmin_id }}" class="link link-hover">{{ activity.name }}</a>
+            </dd>
+        </div>
         {% endif %}
-    </div>
-    {% else %}
-    <div class="mb-6"></div>
-    {% endif %}
+    </dl>
 
     {% if s.steps is none %}
     <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"

@@ -200,6 +200,67 @@ def _calc_steps_duration(steps: list[dict[str, object]]) -> int:
     return total
 
 
+def _calc_steps_tss(steps: list[dict[str, object]], ftp: int) -> int:
+    """
+    Compute training stress score (TSS) from steps using power zones and FTP.
+    TSS = (duration_sec / 3600) * Intensity Factor * 100
+    where Intensity Factor = avg power / FTP
+    """
+    if not ftp or ftp <= 0:
+        return 0
+
+    total_tss = 0.0
+    for step in steps:
+        if step.get("type") == "set":
+            # For sets, calculate TSS for inner steps and multiply by repeats
+            inner = step.get("steps")
+            repeat = step.get("repeat")
+            if isinstance(inner, list) and isinstance(repeat, int):
+                for inner_step in inner:
+                    if isinstance(inner_step, dict):
+                        step_tss = _calc_single_step_tss(inner_step, ftp)
+                        total_tss += step_tss * repeat
+        else:
+            # Single step
+            step_tss = _calc_single_step_tss(step, ftp)
+            total_tss += step_tss
+
+    return round(total_tss)
+
+
+def _calc_single_step_tss(step: dict[str, object], ftp: int) -> float:
+    """Calculate TSS for a single step using zone and FTP."""
+    if not isinstance(step, dict):
+        return 0.0
+
+    duration_sec = step.get("duration_sec")
+    if not isinstance(duration_sec, int) or duration_sec <= 0:
+        return 0.0
+
+    zone = step.get("zone")
+    if not isinstance(zone, str) or zone not in ZONE_BOUNDARIES:
+        return 0.0
+
+    # Get zone boundaries as FTP fractions
+    low, high = ZONE_BOUNDARIES[zone]
+
+    # Handle unbounded zones
+    if low is None:
+        low = 0.0  # Z1 recovery zone starts from 0
+    if high is None:
+        # Z6 is unbounded; use lower bound as intensity estimate
+        avg_power_frac = low
+    else:
+        # Use midpoint of zone as average power
+        avg_power_frac = (low + high) / 2
+
+    avg_power = ftp * avg_power_frac
+    intensity_factor = avg_power / ftp
+
+    tss = (duration_sec / 3600) * intensity_factor * 100
+    return tss
+
+
 def _resolve_week_hours(week, profile):
     """Return per-day hours dict for a given TrainingWeek, resolving A/B/custom."""
     if week.week_type == "custom" and week.avail_override:

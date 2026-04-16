@@ -67,6 +67,7 @@ class TrainingSession(SQLModel, table=True):
     # Structured workout steps — generated on demand when session detail is first viewed.
     # Each step: {type, duration_sec, power_low, power_high, repeat?, cadence?, description?}
     steps: Optional[list[dict[str, object]]] = Field(default=None, sa_column=Column(JSON))
+    steps_tss: Optional[int] = None         # calculated TSS from generated steps
     icu_event_id: Optional[str] = None      # intervals.icu calendar event id when pushed
     icu_compliance: Optional[float] = None  # compliance % from paired ICU activity
     activity_id: Optional[int] = Field(default=None, foreign_key="activity.id", index=True)
