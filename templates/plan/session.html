@@ -69,13 +69,13 @@
         <div class="flex justify-between gap-4">
             <dt class="text-base-content/60">Duration</dt>
             <dd class="font-medium tabular-nums">
-                <span class="text-base-content/60">Planned</span> {{ (s.duration_min * 60) | fmt_dur }}{% if activity and activity.moving_time %} · <span class="text-base-content/60">Actual</span> {{ activity.moving_time | fmt_dur }}{% endif %}
+                <span class="text-base-content/60">Plan</span> {{ (s.duration_min * 60) | fmt_dur }}{% if actual_sec is not none %} · <span class="text-base-content/60">Steps</span> {{ actual_sec | fmt_dur }}{% endif %}{% if activity and activity.moving_time %} · <span class="text-base-content/60">Actual</span> {{ activity.moving_time | fmt_dur }}{% endif %}
             </dd>
         </div>
         <div class="flex justify-between gap-4">
             <dt class="text-base-content/60">TSS</dt>
             <dd class="font-medium tabular-nums text-right text-sm">
-                <span class="text-base-content/60">Master</span> {{ s.tss_target }}{% if s.steps_tss is not none %} · <span class="text-base-content/60">Steps</span> {{ s.steps_tss }}{% endif %}{% if activity and activity.tss %} · <span class="text-base-content/60">Realized</span> {{ activity.tss | int }}{% endif %}
+                <span class="text-base-content/60">Plan</span> {{ s.tss_target }}{% if s.steps_tss is not none %} · <span class="text-base-content/60">Steps</span> {{ s.steps_tss }}{% endif %}{% if activity and activity.tss %} · <span class="text-base-content/60">Realized</span> {{ activity.tss | int }}{% endif %}
             </dd>
         </div>
         {% if s.icu_compliance is not none %}

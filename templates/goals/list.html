@@ -22,6 +22,7 @@
                         <span class="badge badge-outline badge-sm">
                             {% if goal.goal_type == 'race' %}Race
                             {% elif goal.goal_type == 'ftp' %}FTP Build
+                            {% elif goal.goal_type == 'custom' %}Custom
                             {% else %}Endurance
                             {% endif %}
                         </span>
@@ -84,11 +85,11 @@
 
             <div class="form-control">
                 <label class="label"><span class="label-text">Goal type</span></label>
-                <select name="goal_type" id="goal-type-select" class="select select-bordered w-full"
-                        onchange="document.getElementById('ftp-target-row').classList.toggle('hidden', this.value !== 'ftp')">
+                <select name="goal_type" id="goal-type-select" class="select select-bordered w-full">
                     <option value="race">Race / Event</option>
                     <option value="ftp">Build FTP</option>
                     <option value="endurance">Build Endurance</option>
+                    <option value="custom">Custom</option>
                 </select>
             </div>
 
@@ -104,8 +105,11 @@
             </div>
 
             <div class="form-control">
-                <label class="label"><span class="label-text">Notes <span class="text-base-content/40">(optional)</span></span></label>
-                <textarea name="notes" rows="2" placeholder="Any additional context…"
+                <label class="label">
+                    <span class="label-text">Notes</span>
+                    <span id="notes-hint" class="label-text-alt text-base-content/40 hidden">Used as the coaching brief for custom goals</span>
+                </label>
+                <textarea name="notes" id="notes-field" rows="2" placeholder="Any additional context…"
                           class="textarea textarea-bordered w-full"></textarea>
             </div>
 
@@ -119,14 +123,13 @@
 </div>
 
 <script>
-// Fix the hidden/show toggle — use class instead of inline style
 const sel = document.getElementById('goal-type-select');
 const ftpRow = document.getElementById('ftp-target-row');
-if (sel && ftpRow) {
-    ftpRow.style.display = 'none';
-    sel.addEventListener('change', () => {
-        ftpRow.style.display = sel.value === 'ftp' ? '' : 'none';
-    });
+const notesHint = document.getElementById('notes-hint');
+function updateGoalTypeUI() {
+    ftpRow.style.display = sel.value === 'ftp' ? '' : 'none';
+    notesHint.classList.toggle('hidden', sel.value !== 'custom');
 }
+if (sel) { updateGoalTypeUI(); sel.addEventListener('change', updateGoalTypeUI); }
 </script>
 {% endblock %}

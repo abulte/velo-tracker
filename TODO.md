@@ -25,6 +25,8 @@
 
 ## Enhancements
 
+- [ ] plan regeneration UX: re-generating a plan that started in the past silently drops past sessions (start_date defaults to today); needs design — prompt for new start date? warn user? partial regeneration?
+
 - [x] plan generation: pre-populate prompt in UI (as of today), allow human review/edit before submitting to Claude
 - [ ] delete a session from plan
 - [ ] delete generated steps from session (needed?)

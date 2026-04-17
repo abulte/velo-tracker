@@ -261,6 +261,114 @@ def _calc_single_step_tss(step: dict[str, object], ftp: int) -> float:
     return tss
 
 
+# Minimum average intensity (% FTP) that each session_type's MAIN SET can realistically
+# sustain. Used to derive a TSS floor per (duration, type) so the skeleton can't ask
+# for a session whose TSS target is physiologically unreachable.
+_TYPE_MIN_INTENSITY: dict[str, float] = {
+    "recovery":  0.35,
+    "endurance": 0.55,
+    "long":      0.55,
+    "threshold": 0.75,
+    "vo2max":    0.65,
+}
+_WARMUP_COOLDOWN_INTENSITY = 0.275  # Z1 midpoint
+
+
+def _min_feasible_tss(duration_min: int, session_type: str) -> int:
+    """Minimum TSS achievable for a session of this duration and type, assuming
+    a Z1 warmup+cooldown (up to 30min combined) plus a main set at the floor
+    intensity of the session type."""
+    min_intensity = _TYPE_MIN_INTENSITY.get(session_type, 0.55)
+    wc_min = min(30, duration_min // 3)
+    main_min = max(0, duration_min - wc_min)
+    wc_tss = wc_min / 60 * _WARMUP_COOLDOWN_INTENSITY * 100
+    main_tss = main_min / 60 * min_intensity * 100
+    return round(wc_tss + main_tss)
+
+
+def _validate_skeleton(skeleton: PlanSkeleton) -> list[str]:
+    """Check internal consistency of a skeleton. Returns list of error messages
+    (empty = valid). Used by the skeleton-generation retry loop."""
+    errors: list[str] = []
+    for week in skeleton["weeks"]:
+        wn = week["week_number"]
+        week_tss = week["tss_target"]
+        sessions = week["sessions"]
+
+        session_sum = sum(s["tss_target"] for s in sessions)
+        if week_tss > 0 and abs(session_sum - week_tss) / week_tss > 0.05:
+            errors.append(
+                f"Week {wn}: week tss_target={week_tss} but sum(sessions)={session_sum} "
+                f"(off by {session_sum - week_tss:+d}). Must match within ±5%."
+            )
+
+        for s in sessions:
+            min_tss = _min_feasible_tss(s["duration_min"], s["session_type"])
+            if s["tss_target"] < min_tss:
+                min_intensity = _TYPE_MIN_INTENSITY.get(s["session_type"], 0.55)
+                suggested_min = round(s["tss_target"] / (min_intensity * 100) * 60)
+                errors.append(
+                    f"Session '{s['title']}' (W{wn} {s['day_of_week']}): "
+                    f"{s['tss_target']} TSS not achievable in {s['duration_min']}min {s['session_type']}. "
+                    f"Minimum feasible: {min_tss} TSS. "
+                    f"Choose: (a) raise tss_target to ≥{min_tss}, or (b) reduce duration to ~{suggested_min}min. "
+                    f"Duration is a MAX, not a target — shorter sessions are often better for lower-TSS targets."
+                )
+    return errors
+
+
+def _call_skeleton_with_validation(client, prompt: str, label: str, max_turns: int = 6) -> PlanSkeleton:
+    """Call the create_plan_skeleton tool in a retry loop, validating the skeleton
+    on each turn. If validation fails, feed errors back to Claude as tool_result and
+    retry. Mirrors the pattern in generate_session_steps()."""
+    messages: list[MessageParam] = [{"role": "user", "content": prompt}]
+    last_errors: list[str] = []
+
+    for turn in range(max_turns):
+        print(f"--- {label} (turn {turn + 1}) ---", flush=True)
+        if turn == 0:
+            print(prompt, flush=True)
+            print("---", flush=True)
+        with client.messages.stream(
+            model=ANTHROPIC_MODEL,
+            max_tokens=ANTHROPIC_MAX_TOKENS,
+            tools=[_SKELETON_TOOL],
+            tool_choice={"type": "tool", "name": "create_plan_skeleton"},
+            messages=messages,
+        ) as stream:
+            response = stream.get_final_message()
+
+        if response.stop_reason == "max_tokens":
+            raise ValueError(f"{label}: response truncated")
+
+        tool_use = next((b for b in response.content if b.type == "tool_use"), None)
+        if tool_use is None:
+            raise ValueError(f"{label}: no tool call. stop_reason={response.stop_reason}")
+
+        skeleton = _skeleton_adapter.validate_python(tool_use.input)
+        last_errors = _validate_skeleton(skeleton)
+        print(f"  validation: {len(last_errors)} errors", flush=True)
+        for err in last_errors:
+            print(f"    ✗ {err}", flush=True)
+
+        if not last_errors:
+            return skeleton
+
+        result = {"ok": False, "errors": last_errors}
+        messages = cast(list[MessageParam], [
+            *messages,
+            {"role": "assistant", "content": list(response.content)},
+            {"role": "user", "content": [{"type": "tool_result",
+                                          "tool_use_id": tool_use.id,
+                                          "content": str(result)}]},
+        ])
+
+    raise ValueError(
+        f"{label}: skeleton failed validation after {max_turns} turns. "
+        f"Last errors: {last_errors}"
+    )
+
+
 def _resolve_week_hours(week, profile):
     """Return per-day hours dict for a given TrainingWeek, resolving A/B/custom."""
     if week.week_type == "custom" and week.avail_override:
@@ -330,6 +438,7 @@ def _build_context(goal, profile, pmc_current, start_date, start_week_type, _tod
         "race": f"prepare for a race/event on {goal.target_date.strftime('%d %b %Y')}",
         "ftp":  f"build FTP to {goal.target_ftp}W by {goal.target_date.strftime('%d %b %Y')}",
         "endurance": f"build endurance by {goal.target_date.strftime('%d %b %Y')}",
+        "custom": goal.notes or f"custom goal by {goal.target_date.strftime('%d %b %Y')}",
     }.get(goal.goal_type, goal.goal_type)
 
     wpkg = f"{profile.ftp / profile.weight_kg:.2f}" if profile.ftp and profile.weight_kg else None
@@ -393,19 +502,8 @@ def generate_plan(goal, profile, pmc_current, start_date, start_week_type, ratio
     )
 
     log.info("=== Turn 2: skeleton ===")
-    r2 = _stream(client, label="plan skeleton", prompt=skeleton_prompt,
-                 tools=[_SKELETON_TOOL],
-                 tool_choice={"type": "tool", "name": "create_plan_skeleton"})
-
-    if r2.stop_reason == "max_tokens":
-        raise ValueError("Skeleton response truncated. Try a shorter plan horizon.")
-
-    tool_use = next((b for b in r2.content if b.type == "tool_use"), None)
-    if tool_use is None:
-        raise ValueError(f"No tool call in skeleton response. stop_reason={r2.stop_reason}")
-
-    skeleton = _skeleton_adapter.validate_python(tool_use.input)
-    log.info("skeleton: %d weeks, stop=%s", len(skeleton["weeks"]), r2.stop_reason)
+    skeleton = _call_skeleton_with_validation(client, skeleton_prompt, label="plan skeleton")
+    log.info("skeleton: %d weeks", len(skeleton["weeks"]))
     return PlanResult(rationale=rationale, summary=skeleton["summary"], weeks=skeleton["weeks"])
 
 
@@ -441,18 +539,7 @@ def regenerate_stale_weeks(plan, stale_weeks, profile) -> PlanSkeleton:
     )
 
     log.info("=== regenerate_stale_weeks: weeks %s ===", stale_nums)
-    response = _stream(client, label=f"regenerate weeks {stale_nums}", prompt=prompt,
-                       tools=[_SKELETON_TOOL],
-                       tool_choice={"type": "tool", "name": "create_plan_skeleton"})
-
-    if response.stop_reason == "max_tokens":
-        raise ValueError("Regenerate response truncated.")
-
-    tool_use = next((b for b in response.content if b.type == "tool_use"), None)
-    if tool_use is None:
-        raise ValueError(f"No tool call in regenerate response. stop_reason={response.stop_reason}")
-
-    skeleton = _skeleton_adapter.validate_python(tool_use.input)
+    skeleton = _call_skeleton_with_validation(client, prompt, label=f"regenerate weeks {stale_nums}")
     log.info("regenerated %d weeks", len(skeleton["weeks"]))
     return skeleton
 
