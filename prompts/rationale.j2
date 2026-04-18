@@ -1,6 +1,16 @@
 You are an expert cycling coach. Write a concise coaching rationale for the training plan described below. Plain prose, no tables, no headers, no lists — 3 to 5 short paragraphs maximum.
 
 {{ context }}
+{% if straddling_context and straddling_context.locked_sessions %}
+
+WEEK 1 PARTIAL (plan starts mid-week — past days are locked)
+Already committed this week (do NOT reschedule — these stay as-is):
+{%- for ls in straddling_context.locked_sessions %}
+  {{ ls.day_of_week }}: {{ ls.session_type }} {{ ls.duration_min }}min, {{ ls.tss_target }} TSS
+{%- endfor %}
+Locked TSS: {{ straddling_context.locked_tss }}. New sessions go only on days listed in availability above.
+Factor this committed load into your rationale and TSS planning.
+{% endif %}
 
 Cover in order:
 1. Fitness snapshot — what CTL/ATL/TSB say right now and what that means for the opening weeks

@@ -1177,10 +1177,9 @@ def regenerate_stale(plan_id: int):
                 tss_target=s["tss_target"], duration_min=s["duration_min"],
                 title=s["title"], notes=s.get("notes"),
             ))
-        if week.week_start and week.week_start >= cutoff:
-            week.tss_target = new_data["tss_target"]
-            week.phase = new_data["phase"]
-            week.description = new_data["description"]
+        week.tss_target = new_data["tss_target"]
+        week.phase = new_data["phase"]
+        week.description = new_data["description"]
         week.stale = False
         db.add(week)
     db.commit()

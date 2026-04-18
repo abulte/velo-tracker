@@ -18,6 +18,9 @@ Week {{ wc.week_number }} (week of {{ wc.week_start.strftime('%d %b %Y') }}) —
     {{ ls.day_of_week }}: {{ ls.session_type }} {{ ls.duration_min }}min, {{ ls.tss_target }} TSS
   {%- endfor %}
   Locked TSS: {{ wc.locked_tss }}  →  remaining to schedule: {{ wc.remaining_tss }} TSS
+  {%- if wc.remaining_tss <= 0 %}
+  This week is already complete — return an empty sessions list for week {{ wc.week_number }}.
+  {%- endif %}
 {%- endif %}
   Availability (max hours per day, {{ wc.total_h }}h total): {{ wc.day_detail }}
 {% endfor %}
