@@ -15,7 +15,7 @@ from sqlmodel import Session, col, create_engine, select
 
 from cli import sync_activities
 from climbs import detect_climbs
-from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration, _calc_steps_tss, build_rationale_prompt as _build_rationale_prompt
+from coach import generate_plan as _generate_plan, generate_session_steps, regenerate_stale_weeks as _regenerate_stale_weeks, _resolve_week_hours, _calc_steps_duration, _calc_steps_tss, build_rationale_prompt as _build_rationale_prompt, _is_session_locked
 from fit_export import session_to_fit as _session_to_fit
 from config import ZONE_BOUNDARIES
 from icu import sync_athlete as _sync_icu, _classify_level, push_workout_event as _push_icu_event, delete_workout_event as _delete_icu_event, fetch_compliance as _fetch_icu_compliance
@@ -546,6 +546,43 @@ def _delete_plan(plan, db, profile=None) -> None:
         db.delete(week)
     db.flush()
     db.delete(plan)
+
+
+def _session_date(week: TrainingWeek, s: TrainingSession) -> datetime.date:
+    assert week.week_start is not None
+    return week.week_start + datetime.timedelta(days=_DAY_OFFSETS[s.day_of_week])
+
+
+def _delete_mutable_sessions(week: TrainingWeek, cutoff: datetime.date, db: Session, profile=None) -> None:
+    """Delete sessions in week that are mutable (not locked). Preserves locked sessions."""
+    for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
+        session_date = _session_date(week, s)
+        if _is_session_locked(s, session_date, cutoff):
+            continue
+        if s.icu_event_id and profile and profile.icu_athlete_id and profile.icu_api_key:
+            try:
+                _delete_icu_event(profile.icu_athlete_id, profile.icu_api_key, s.icu_event_id)
+            except Exception as e:
+                app.logger.warning("ICU delete failed for event %s: %s", s.icu_event_id, e)
+        db.delete(s)
+    db.flush()
+
+
+def _find_straddling_week(
+    plan: TrainingPlan | None, cutoff: datetime.date, db: Session
+) -> tuple[TrainingWeek | None, list[TrainingSession]]:
+    """Find the week of `plan` containing `cutoff` and its sessions. Returns (None, []) if none."""
+    if plan is None:
+        return None, []
+    for w in db.exec(select(TrainingWeek).where(TrainingWeek.plan_id == plan.id)).all():
+        if w.week_start and w.week_start < cutoff <= w.week_start + datetime.timedelta(days=6):
+            sessions = list(
+                db.exec(select(TrainingSession).where(TrainingSession.week_id == w.id)).all()
+            )
+            return w, sessions
+    return None, []
+
+
 _DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
@@ -607,15 +644,33 @@ def sync_icu():
 def list_goals():
     session = get_db()
     goals = session.exec(select(Goal).order_by(col(Goal.created_at).desc())).all()
-    active_plans = {p.goal_id: p.id for p in session.exec(
-        select(TrainingPlan).where(TrainingPlan.is_active == True)  # noqa: E712
-    ).all()}
+    active_plan_objs = session.exec(
+        select(TrainingPlan).where(col(TrainingPlan.is_active).is_(True))
+    ).all()
+    active_plans = {p.goal_id: p.id for p in active_plan_objs}
+    active_plan_starts = {p.goal_id: p.start_date for p in active_plan_objs if p.start_date}
 
     today = datetime.date.today()
     next_monday = today + datetime.timedelta(days=-today.weekday(), weeks=1) if today.weekday() != 0 else today
 
+    plan_ids = [p.id for p in active_plan_objs]
+    week1_rows = session.exec(
+        select(TrainingWeek)
+        .where(col(TrainingWeek.plan_id).in_(plan_ids), TrainingWeek.week_number == 1)
+    ).all()
+    week1_by_plan = {w.plan_id: w for w in week1_rows}
+    active_plan_week_type: dict[int, str] = {}
+    for p in active_plan_objs:
+        assert p.id is not None
+        w1 = week1_by_plan.get(p.id)
+        if w1 and w1.week_start:
+            idx = (today - w1.week_start).days // 7
+            active_plan_week_type[p.goal_id] = w1.week_type if idx % 2 == 0 else ("b" if w1.week_type == "a" else "a")
+
     return render_template("goals/list.html", goals=goals, today_date=today,
-                           active_plans=active_plans, next_monday=next_monday)
+                           active_plans=active_plans, active_plan_starts=active_plan_starts,
+                           active_plan_week_type=active_plan_week_type,
+                           next_monday=next_monday)
 
 
 @app.route("/goals", methods=["POST"])
@@ -695,7 +750,18 @@ def preview_plan_prompt(goal_id: int):
     pmc = _compute_pmc(list(activities))
     pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
 
-    prompt = _build_rationale_prompt(goal, profile, pmc_current, start_date, start_week_type)
+    cutoff = datetime.date.today()
+    existing_plan = session.exec(
+        select(TrainingPlan).where(TrainingPlan.goal_id == goal_id, col(TrainingPlan.is_active).is_(True))
+    ).first()
+    straddling_week, straddling_sessions = _find_straddling_week(existing_plan, cutoff, session)
+
+    prompt = _build_rationale_prompt(
+        goal, profile, pmc_current, start_date, start_week_type,
+        straddling_week=straddling_week,
+        straddling_sessions=straddling_sessions if straddling_week else None,
+        cutoff=cutoff,
+    )
     return render_template("goals/_gen_prompt.html", goal=goal, prompt=prompt,
                            start_date=start_date.isoformat(), start_week_type=start_week_type)
 
@@ -711,12 +777,10 @@ def generate_plan(goal_id: int):
         return render_template("goals/_actions.html", goal=goal, plan_id=None,
                                error="Set your FTP in Profile before generating a plan.")
 
-    # Parse modal params
     start_date_str = request.form.get("start_date")
     start_date = datetime.date.fromisoformat(start_date_str) if start_date_str else datetime.date.today()
     start_week_type = request.form.get("start_week_type", "a")
 
-    # Current PMC values
     activities = session.exec(select(Activity).order_by(col(Activity.start_date).desc())).all()
     pmc = _compute_pmc(list(activities))
     pmc_current = pmc[-1] if pmc else {"ctl": 0, "atl": 0, "tsb": 0}
@@ -726,57 +790,131 @@ def generate_plan(goal_id: int):
         return render_template("goals/_actions.html", goal=goal, plan_id=None,
                                error="Prompt cannot be empty. Use Preview Prompt to review before generating.")
 
-    # Call Claude
+    cutoff = datetime.date.today()
+    first_mutable_monday = cutoff + datetime.timedelta(days=(7 - cutoff.weekday()) % 7)
+
+    existing_plan = session.exec(
+        select(TrainingPlan).where(TrainingPlan.goal_id == goal_id, col(TrainingPlan.is_active).is_(True))
+    ).first()
+
+    straddling_week, straddling_sessions = _find_straddling_week(existing_plan, cutoff, session)
+
+    past_weeks: list[TrainingWeek] = []
+    if existing_plan:
+        past_weeks = [
+            w for w in session.exec(select(TrainingWeek).where(TrainingWeek.plan_id == existing_plan.id)).all()
+            if w.week_start and w.week_start + datetime.timedelta(days=6) < cutoff
+        ]
+
+    if straddling_week:
+        effective_start = cutoff
+    elif past_weeks:
+        last_past = max(past_weeks, key=lambda w: w.week_start or datetime.date.min)
+        assert last_past.week_start is not None
+        effective_start = last_past.week_start + datetime.timedelta(days=7)
+    else:
+        effective_start = max(start_date, first_mutable_monday) if existing_plan else start_date
+
     try:
-        plan_data = _generate_plan(goal, profile, pmc_current, start_date, start_week_type, rationale_prompt=rationale_prompt)
+        plan_data = _generate_plan(
+            goal, profile, pmc_current, effective_start, start_week_type,
+            rationale_prompt=rationale_prompt,
+            straddling_week=straddling_week,
+            straddling_sessions=straddling_sessions,
+            cutoff=cutoff,
+        )
         app.logger.info("plan_data keys: %s, weeks: %d", list(plan_data.keys()), len(plan_data.get("weeks", [])))
     except Exception as e:
         app.logger.exception("generate_plan failed")
         return render_template("goals/_actions.html", goal=goal, plan_id=None, error=str(e))
 
-    # Delete existing plans for this goal
-    for p in session.exec(select(TrainingPlan).where(TrainingPlan.goal_id == goal_id)).all():
-        _delete_plan(p, session)
-    session.flush()
-
-    # Store new plan
-    plan = TrainingPlan(
-        goal_id=goal_id,
-        start_date=start_date,
-        summary=plan_data["summary"],
-        rationale=plan_data.get("rationale"),
-        is_active=True,
-    )
-    session.add(plan)
-    session.flush()
-    assert plan.id is not None
-
-    week_monday = start_date - datetime.timedelta(days=start_date.weekday())
-    for week_data in plan_data["weeks"]:
-        n = week_data["week_number"]
-        week_type = "a" if (n % 2 == 1) == (start_week_type == "a") else "b"
-        week_start = week_monday + datetime.timedelta(weeks=n - 1)
-        week = TrainingWeek(
-            plan_id=plan.id,
-            week_number=n,
-            phase=week_data["phase"],
-            tss_target=week_data["tss_target"],
-            description=week_data["description"],
-            week_start=week_start,
-            week_type=week_type,
-        )
-        session.add(week)
+    if existing_plan:
+        plan = existing_plan
+        plan.summary = plan_data["summary"]
+        plan.rationale = plan_data.get("rationale")
+        if not past_weeks and not straddling_week:
+            plan.start_date = effective_start
+        if straddling_week:
+            _delete_mutable_sessions(straddling_week, cutoff, session, profile=profile)
+        all_existing_weeks = session.exec(select(TrainingWeek).where(TrainingWeek.plan_id == plan.id)).all()
+        straddling_id = straddling_week.id if straddling_week else None
+        past_ids = {w.id for w in past_weeks}
+        for w in all_existing_weeks:
+            if w.id == straddling_id or w.id in past_ids:
+                continue
+            # fully-future week: delete all sessions (all mutable since week_start > cutoff) then the week
+            _delete_mutable_sessions(w, cutoff, session, profile=profile)
+            session.delete(w)
         session.flush()
-        assert week.id is not None
+        for p in session.exec(  # delete non-active plans for this goal
+            select(TrainingPlan).where(TrainingPlan.goal_id == goal_id, col(TrainingPlan.is_active).is_(False))
+        ).all():
+            _delete_plan(p, session)
+        session.flush()
+    else:
+        for p in session.exec(select(TrainingPlan).where(TrainingPlan.goal_id == goal_id)).all():
+            _delete_plan(p, session)
+        session.flush()
+        plan = TrainingPlan(
+            goal_id=goal_id, start_date=effective_start,
+            summary=plan_data["summary"], rationale=plan_data.get("rationale"),
+            is_active=True,
+        )
+        session.add(plan)
+        session.flush()
+
+    assert plan.id is not None
+    assert plan.start_date is not None
+    past_count = len(past_weeks)
+    has_straddling = straddling_week is not None
+    anchor_monday = plan.start_date - datetime.timedelta(days=plan.start_date.weekday())
+
+    if past_weeks or has_straddling:
+        anchor_week = straddling_week or min(past_weeks, key=lambda w: w.week_number)
+        effective_week_type = "a" if (anchor_week.week_number % 2 == 1) == (anchor_week.week_type == "a") else "b"
+    else:
+        effective_week_type = start_week_type
+
+    def _target_week_number(claude_n: int) -> int:
+        if has_straddling:
+            assert straddling_week is not None
+            return straddling_week.week_number + claude_n - 1
+        return past_count + claude_n
+
+    for week_data in plan_data["weeks"]:
+        claude_n = week_data["week_number"]
+        if has_straddling and claude_n == 1:
+            assert straddling_week is not None
+            target_week = straddling_week
+            target_week.phase = week_data["phase"]
+            target_week.description = week_data["description"]
+            # skeleton.j2 instructs Claude to output tss_target as the full week total
+            # (locked + new combined), so we store it verbatim.
+            target_week.tss_target = week_data["tss_target"]
+            session.add(target_week)
+        else:
+            n = _target_week_number(claude_n)
+            week_type = "a" if (n % 2 == 1) == (effective_week_type == "a") else "b"
+            week_start = anchor_monday + datetime.timedelta(weeks=n - 1)
+            target_week = TrainingWeek(
+                plan_id=plan.id, week_number=n, phase=week_data["phase"],
+                tss_target=week_data["tss_target"], description=week_data["description"],
+                week_start=week_start, week_type=week_type,
+            )
+            session.add(target_week)
+            session.flush()
+        assert target_week.id is not None
         for s in week_data.get("sessions", []):
+            if has_straddling and claude_n == 1:
+                assert straddling_week is not None and straddling_week.week_start is not None
+                day_date = straddling_week.week_start + datetime.timedelta(days=_DAY_OFFSETS[s["day_of_week"]])
+                if day_date < cutoff:
+                    app.logger.warning("generate_plan: skipping session on locked day %s", s["day_of_week"])
+                    continue
             session.add(TrainingSession(
-                week_id=week.id,
-                day_of_week=s["day_of_week"],
-                session_type=s["session_type"],
-                tss_target=s["tss_target"],
-                duration_min=s["duration_min"],
-                title=s["title"],
-                notes=s.get("notes"),
+                week_id=target_week.id, day_of_week=s["day_of_week"], session_type=s["session_type"],
+                tss_target=s["tss_target"], duration_min=s["duration_min"],
+                title=s["title"], notes=s.get("notes"),
             ))
 
     session.commit()
@@ -842,6 +980,8 @@ def show_plan(plan_id: int):
     )
 
     stale_weeks = [w for w in weeks if w.stale]
+    past_stale_weeks = [w for w in stale_weeks if w.week_start and w.week_start + datetime.timedelta(days=6) < today]
+    future_stale_weeks = [w for w in stale_weeks if w not in past_stale_weeks]
     has_icu = bool(profile and profile.icu_athlete_id and profile.icu_api_key)
     sessions_with_steps = sum(
         1 for by_day in sessions_by_week.values()
@@ -859,6 +999,8 @@ def show_plan(plan_id: int):
         tss_by_week=tss_by_week,
         current_week_num=current_week_num,
         stale_weeks=stale_weeks,
+        past_stale_weeks=past_stale_weeks,
+        future_stale_weeks=future_stale_weeks,
         days=_DAYS,
         timedelta=datetime.timedelta,
         has_icu=has_icu,
@@ -961,9 +1103,13 @@ def save_week_availability(week_id: int):
         )
     ).all()
     plan = db.get(TrainingPlan, week.plan_id)
+    today = datetime.date.today()
+    past_stale_weeks = [w for w in stale_weeks if w.week_start and w.week_start + datetime.timedelta(days=6) < today]
+    future_stale_weeks = [w for w in stale_weeks if w not in past_stale_weeks]
 
     badge_html = render_template("plan/_week_stale_badge.html", week=week)
-    banner_html = render_template("plan/_stale_banner.html", plan=plan, stale_weeks=stale_weeks)
+    banner_html = render_template("plan/_stale_banner.html", plan=plan,
+                                  past_stale_weeks=past_stale_weeks, future_stale_weeks=future_stale_weeks)
     display_swaps = "".join(
         f'<div id="avail-display-{week_id}-{d}" hx-swap-oob="innerHTML">'
         f'{"{}h".format(hours[d]) if hours[d] > 0 else "+"}'
@@ -984,49 +1130,57 @@ def regenerate_stale(plan_id: int):
     if not plan:
         return "Not found", 404
     profile = db.get(UserProfile, 1)
-    stale_weeks = db.exec(
-        select(TrainingWeek).where(
-            TrainingWeek.plan_id == plan_id,
-            TrainingWeek.stale,
-        )
+
+    today = datetime.date.today()
+    cutoff = today
+
+    stale_weeks_all = db.exec(
+        select(TrainingWeek).where(TrainingWeek.plan_id == plan_id, TrainingWeek.stale)
     ).all()
-    if not stale_weeks:
+
+    # Clear stale flag on fully-past weeks (last day before cutoff) — nothing to regenerate
+    revised_weeks = []
+    for w in stale_weeks_all:
+        if not w.week_start:
+            continue
+        if w.week_start + datetime.timedelta(days=6) < cutoff:
+            w.stale = False
+            db.add(w)
+            continue
+        revised_weeks.append(w)
+
+    if not revised_weeks:
+        db.commit()
         return "", 200, {"HX-Redirect": f"/plan/{plan_id}"}
 
+    week_sessions = {
+        w.id: db.exec(select(TrainingSession).where(TrainingSession.week_id == w.id)).all()
+        for w in revised_weeks
+    }
+
     try:
-        revised = _regenerate_stale_weeks(plan, stale_weeks, profile)
+        revised = _regenerate_stale_weeks(plan, revised_weeks, profile, week_sessions=week_sessions, cutoff_date=cutoff)
     except Exception as e:
         app.logger.exception("regenerate_stale_weeks failed")
         return f"Error: {e}", 500
 
-    revised_weeks = revised.get("weeks", [])
-    assert isinstance(revised_weeks, list)
-    revised_by_num = {w["week_number"]: w for w in revised_weeks}
-    for week in stale_weeks:
+    revised_by_num = {w["week_number"]: w for w in revised.get("weeks", [])}
+    for week in revised_weeks:
         assert week.id is not None
         new_data = revised_by_num.get(week.week_number)
         if not new_data:
             continue
-        for s in db.exec(select(TrainingSession).where(TrainingSession.week_id == week.id)).all():
-            if s.icu_event_id and profile and profile.icu_athlete_id and profile.icu_api_key:
-                try:
-                    _delete_icu_event(profile.icu_athlete_id, profile.icu_api_key, s.icu_event_id)
-                except Exception as e:
-                    app.logger.warning("ICU delete failed for event %s: %s", s.icu_event_id, e)
-            db.delete(s)
+        _delete_mutable_sessions(week, cutoff, db, profile=profile)
         for s in new_data.get("sessions", []):
             db.add(TrainingSession(
-                week_id=week.id,
-                day_of_week=s["day_of_week"],
-                session_type=s["session_type"],
-                tss_target=s["tss_target"],
-                duration_min=s["duration_min"],
-                title=s["title"],
-                notes=s.get("notes"),
+                week_id=week.id, day_of_week=s["day_of_week"], session_type=s["session_type"],
+                tss_target=s["tss_target"], duration_min=s["duration_min"],
+                title=s["title"], notes=s.get("notes"),
             ))
-        week.tss_target = new_data["tss_target"]
-        week.phase = new_data["phase"]
-        week.description = new_data["description"]
+        if week.week_start and week.week_start >= cutoff:
+            week.tss_target = new_data["tss_target"]
+            week.phase = new_data["phase"]
+            week.description = new_data["description"]
         week.stale = False
         db.add(week)
     db.commit()

@@ -1,4 +1,4 @@
-You are an expert cycling coach. The athlete's availability has changed for some weeks of their training plan. Revise only those weeks.
+You are an expert cycling coach. Revise the specified weeks of the athlete's training plan.
 
 ATHLETE
 - FTP: {{ ftp or 'unknown' }}W{% if wpkg %} ({{ wpkg }} W/kg){% endif %}
@@ -8,16 +8,33 @@ ORIGINAL COACHING RATIONALE
 {{ rationale }}
 
 WEEKS TO REVISE: {{ stale_nums }}
-UPDATED AVAILABILITY FOR THESE WEEKS (max hours per day)
-{% for line in avail_lines %}{{ line }}
+CUTOFF: {{ cutoff_date.strftime('%a %d %b %Y') }} — sessions before this date are locked and must NOT appear in your output.
+
+{% for wc in week_contexts %}
+Week {{ wc.week_number }} (week of {{ wc.week_start.strftime('%d %b %Y') }}) — target {{ wc.tss_target }} TSS
+{%- if wc.is_partial %}
+  LOCKED SESSIONS (keep as-is, do not include in output):
+  {%- for ls in wc.locked_sessions %}
+    {{ ls.day_of_week }}: {{ ls.session_type }} {{ ls.duration_min }}min, {{ ls.tss_target }} TSS
+  {%- endfor %}
+  Locked TSS: {{ wc.locked_tss }}  →  remaining to schedule: {{ wc.remaining_tss }} TSS
+{%- endif %}
+  Availability (max hours per day, {{ wc.total_h }}h total): {{ wc.day_detail }}
 {% endfor %}
 
 Rules:
-- Only schedule sessions on days with available hours
-- Available hours per day are the MAXIMUM — NOT a target. Use shorter durations when the target TSS can be reached in less time, or when the session type is naturally short (VO2max, threshold).
-- Each session's tss_target must be physically achievable given its duration and session_type. Reference: endurance (Z2) ~55–75 TSS/hour; threshold ~85–100 TSS/hour; VO2max intervals in Z2 base ~70–100 TSS/hour; recovery (Z1) ~20–35 TSS/hour.
-- Week-level tss_target must equal the sum of that week's session tss_targets (±5%).
-- Keep the same phase and TSS targets unless availability forces a change
-- Return ONLY the revised week numbers listed above — no other weeks
+- Only schedule sessions on days with available hours (listed above). Locked days and unavailable days are not listed.
+- Return ONLY new sessions for mutable days — do NOT repeat locked sessions.
+- For partial weeks: new session TSS total must equal the remaining TSS target (±5%).
+- For full weeks (no locked sessions): total week TSS must equal the week's tss_target (±5%).
+- Session TSS must be physically achievable: endurance (Z2) ~55–75 TSS/h, threshold ~85–100 TSS/h, VO2max in Z2 base ~70–100 TSS/h, recovery (Z1) ~20–35 TSS/h.
+- Available hours are a MAXIMUM, not a target — use shorter durations when TSS is reached sooner.
+- Keep the same phase and week TSS target unless availability forces a change.
+- Return ONLY the revised week numbers listed above.
+
+{% if context_extras.recent_performance -%}
+RECENT PERFORMANCE
+{{ context_extras.recent_performance }}
+{%- endif %}
 
 Call the create_plan_skeleton tool.
