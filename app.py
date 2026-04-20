@@ -1003,6 +1003,7 @@ def show_plan(plan_id: int):
         future_stale_weeks=future_stale_weeks,
         days=_DAYS,
         timedelta=datetime.timedelta,
+        today=today,
         has_icu=has_icu,
         sessions_with_steps=sessions_with_steps,
     )
@@ -1030,7 +1031,7 @@ def show_session(session_id: int):
 
     activity = session.get(Activity, s.activity_id) if s.activity_id else None
 
-    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta, zone_boundaries=ZONE_BOUNDARIES, actual_sec=actual_sec, activity=activity)
+    return render_template("plan/session.html", s=s, week=week, plan=plan, goal=goal, ftp=profile.ftp if profile else None, timedelta=datetime.timedelta, zone_boundaries=ZONE_BOUNDARIES, actual_sec=actual_sec, activity=activity, today=datetime.date.today())
 
 
 @app.route("/plan/sessions/<int:session_id>/regenerate-steps", methods=["POST"])
@@ -1062,6 +1063,37 @@ def regenerate_session_steps(session_id: int):
     db.commit()
 
     return redirect(url_for("show_session", session_id=session_id))
+
+
+@app.route("/plan/sessions/<int:session_id>/delete", methods=["POST"])
+def delete_session(session_id: int):
+    db = get_db()
+    s = db.get(TrainingSession, session_id)
+    if not s:
+        return "Not found", 404
+    if s.activity_id:
+        return "Cannot delete a session linked to a completed activity", 400
+    week = db.get(TrainingWeek, s.week_id)
+    if not week:
+        return "Not found", 404
+    plan_id = week.plan_id
+    profile = db.get(UserProfile, 1)
+
+    if s.icu_event_id and profile and profile.icu_athlete_id and profile.icu_api_key:
+        try:
+            _delete_icu_event(profile.icu_athlete_id, profile.icu_api_key, s.icu_event_id)
+        except Exception as e:
+            app.logger.warning("ICU delete failed for event %s: %s", s.icu_event_id, e)
+
+    db.delete(s)
+
+    today = datetime.date.today()
+    if week.week_start and week.week_start + datetime.timedelta(days=6) >= today:
+        week.stale = True
+        db.add(week)
+
+    db.commit()
+    return redirect(url_for("show_plan", plan_id=plan_id))
 
 
 @app.route("/plan/sessions/<int:session_id>/export.fit")

@@ -48,6 +48,7 @@
 
 {% set _day_offsets = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6} %}
 {% set session_date = week.week_start + timedelta(days=_day_offsets[s.day_of_week]) %}
+{% set is_skipped = session_date < today and not s.activity_id %}
 <div class="text-sm text-base-content/50 mb-4">
     <a href="/goals" class="link link-hover">Goals</a> /
     <a href="/plan/{{ plan.id }}" class="link link-hover">{{ goal.title }}</a> /
@@ -63,6 +64,12 @@
         </span>
     </div>
     <h1 class="text-2xl font-bold mb-4">{{ s.title }}</h1>
+
+    {% if is_skipped %}
+    <div class="alert alert-warning mb-4 text-sm">
+        <span>⚠ This session is in the past and has no linked activity — it was planned but not completed. You can delete it to reclaim the TSS budget on the next regeneration.</span>
+    </div>
+    {% endif %}
 
     <!-- Session Info -->
     <dl class="space-y-3 text-sm mb-6">
@@ -95,13 +102,18 @@
     </dl>
 
     {% if s.steps is none %}
-    <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"
-          onsubmit="this.querySelector('.session-spinner').style.display='inline-block';">
-        <div class="flex items-center gap-3">
-            <button class="btn btn-primary">Generate workout steps</button>
-            <span class="session-spinner loading loading-spinner loading-sm" style="display:none"></span>
-        </div>
-    </form>
+    <div class="flex items-center gap-3">
+        <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"
+              onsubmit="this.querySelector('.session-spinner').style.display='inline-block';">
+            <div class="flex items-center gap-3">
+                <button class="btn btn-primary">Generate workout steps</button>
+                <span class="session-spinner loading loading-spinner loading-sm" style="display:none"></span>
+            </div>
+        </form>
+        {% if not s.activity_id %}
+        <button onclick="document.getElementById('delete-session-modal').showModal()" class="btn btn-sm btn-ghost text-error ml-auto">Delete</button>
+        {% endif %}
+    </div>
     {% elif s.steps %}
     <div class="space-y-2">
         {% for step in s.steps %}
@@ -125,18 +137,44 @@
         {% endfor %}
     </div>
 
-    <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps" class="mt-4"
-          onsubmit="this.querySelector('.session-spinner').style.display='inline-block';">
-        <div class="flex items-center gap-3">
-            <button class="btn btn-sm btn-ghost">Regenerate steps</button>
-            <span class="session-spinner loading loading-spinner loading-sm" style="display:none"></span>
-            <a href="/plan/sessions/{{ s.id }}/export.fit" class="btn btn-sm btn-outline">Download .fit</a>
-        </div>
-    </form>
+    <div class="flex items-center gap-3 mt-4">
+        <form method="POST" action="/plan/sessions/{{ s.id }}/regenerate-steps"
+              onsubmit="this.querySelector('.session-spinner').style.display='inline-block';">
+            <div class="flex items-center gap-3">
+                <button class="btn btn-sm btn-ghost">Regenerate steps</button>
+                <span class="session-spinner loading loading-spinner loading-sm" style="display:none"></span>
+            </div>
+        </form>
+        <a href="/plan/sessions/{{ s.id }}/export.fit" class="btn btn-sm btn-outline">Download .fit</a>
+        {% if not s.activity_id %}
+        <button onclick="document.getElementById('delete-session-modal').showModal()" class="btn btn-sm btn-ghost text-error ml-auto">Delete</button>
+        {% endif %}
+    </div>
     {% endif %}
 
     {% if s.notes %}
     <p class="text-sm text-base-content/50 italic mt-4 px-1">{{ s.notes }}</p>
+    {% endif %}
+
+    {% if not s.activity_id %}
+    {% set week_end = week.week_start + timedelta(days=6) %}
+    {% set will_mark_stale = week_end >= today %}
+    <dialog id="delete-session-modal" class="modal">
+        <div class="modal-box">
+            <h3 class="font-bold text-lg">Delete this session?</h3>
+            <p class="py-4 text-base-content/60 text-sm">
+                This removes the session from your plan{% if s.icu_event_id %} and from intervals.icu{% endif %}.
+                {% if will_mark_stale %}The week will be marked stale so regeneration can rebalance the remaining days.{% endif %}
+            </p>
+            <div class="modal-action">
+                <form method="POST" action="/plan/sessions/{{ s.id }}/delete">
+                    <button type="submit" class="btn btn-error">Delete</button>
+                </form>
+                <button onclick="document.getElementById('delete-session-modal').close()" class="btn">Cancel</button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
     {% endif %}
 </div>
 {% endblock %}

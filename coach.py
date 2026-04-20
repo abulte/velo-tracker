@@ -75,6 +75,7 @@ def _build_week_locked_context(week, sessions: list, cutoff: datetime.date, prof
         "remaining_tss": week.tss_target - locked_tss,
         "total_h": total_h,
         "day_detail": day_detail,
+        "avail_hours": hours,
         "is_partial": bool(locked),
     }
 
@@ -341,15 +342,22 @@ def _min_feasible_tss(duration_min: int, session_type: str) -> int:
     return round(wc_tss + main_tss)
 
 
-def _validate_skeleton(skeleton: PlanSkeleton, locked_tss_by_week: dict[int, int] | None = None) -> list[str]:
+def _validate_skeleton(
+    skeleton: PlanSkeleton,
+    locked_tss_by_week: dict[int, int] | None = None,
+    avail_by_week: dict[int, dict[str, float]] | None = None,
+) -> list[str]:
     """Check internal consistency of a skeleton. Returns list of error messages
     (empty = valid). Used by the skeleton-generation retry loop.
 
     locked_tss_by_week: {week_number: tss} for locked (pre-cutoff) sessions that
     are not in `sessions` but count toward the week's tss_target.
+    avail_by_week: {week_number: {day: max_hours}} — validates session duration
+    against day availability. Skipped when None.
     """
     errors: list[str] = []
     locked_tss_by_week = locked_tss_by_week or {}
+    avail_by_week = avail_by_week or {}
     for week in skeleton["weeks"]:
         wn = week["week_number"]
         week_tss = week["tss_target"]
@@ -364,6 +372,7 @@ def _validate_skeleton(skeleton: PlanSkeleton, locked_tss_by_week: dict[int, int
                 f"(off by {effective_sum - week_tss:+d}). Must match within ±5%."
             )
 
+        week_avail = avail_by_week.get(wn)
         for s in sessions:
             min_tss = _min_feasible_tss(s["duration_min"], s["session_type"])
             if s["tss_target"] < min_tss:
@@ -376,11 +385,23 @@ def _validate_skeleton(skeleton: PlanSkeleton, locked_tss_by_week: dict[int, int
                     f"Choose: (a) raise tss_target to ≥{min_tss}, or (b) reduce duration to ~{suggested_min}min. "
                     f"Duration is a MAX, not a target — shorter sessions are often better for lower-TSS targets."
                 )
+
+            if week_avail is not None:
+                max_h = week_avail.get(s["day_of_week"], 0)
+                max_min = int(max_h * 60)
+                if s["duration_min"] > max_min:
+                    errors.append(
+                        f"Session '{s['title']}' (W{wn} {s['day_of_week']}): "
+                        f"duration {s['duration_min']}min exceeds available {max_min}min ({max_h}h) on that day. "
+                        f"Either shorten this session to ≤{max_min}min (and lower tss_target if needed), "
+                        f"or reduce the week's tss_target so remaining load fits within availability."
+                    )
     return errors
 
 
 def _call_skeleton_with_validation(client, prompt: str, label: str, max_turns: int = 6,
-                                    locked_tss_by_week: dict[int, int] | None = None) -> PlanSkeleton:
+                                    locked_tss_by_week: dict[int, int] | None = None,
+                                    avail_by_week: dict[int, dict[str, float]] | None = None) -> PlanSkeleton:
     """Call the create_plan_skeleton tool in a retry loop, validating the skeleton
     on each turn. If validation fails, feed errors back to Claude as tool_result and
     retry. Mirrors the pattern in generate_session_steps()."""
@@ -409,7 +430,8 @@ def _call_skeleton_with_validation(client, prompt: str, label: str, max_turns: i
             raise ValueError(f"{label}: no tool call. stop_reason={response.stop_reason}")
 
         skeleton = _skeleton_adapter.validate_python(tool_use.input)
-        last_errors = _validate_skeleton(skeleton, locked_tss_by_week=locked_tss_by_week)
+        last_errors = _validate_skeleton(skeleton, locked_tss_by_week=locked_tss_by_week,
+                                         avail_by_week=avail_by_week)
         print(f"  validation: {len(last_errors)} errors", flush=True)
         for err in last_errors:
             print(f"    ✗ {err}", flush=True)
@@ -594,8 +616,10 @@ def generate_plan(
     # Claude is instructed to emit week 1's full-week tss_target (locked + new) but
     # only output mutable-day sessions; tell the validator so it checks sum+locked.
     locked_tss_by_week = {1: straddling_context["locked_tss"]} if straddling_context else None
+    avail_by_week = {1: straddling_context["avail_hours"]} if straddling_context else None
     skeleton = _call_skeleton_with_validation(client, skeleton_prompt, label="plan skeleton",
-                                              locked_tss_by_week=locked_tss_by_week)
+                                              locked_tss_by_week=locked_tss_by_week,
+                                              avail_by_week=avail_by_week)
     log.info("skeleton: %d weeks", len(skeleton["weeks"]))
     return PlanResult(rationale=rationale, summary=skeleton["summary"], weeks=skeleton["weeks"])
 
@@ -639,8 +663,10 @@ def regenerate_stale_weeks(
 
     log.info("=== regenerate_stale_weeks: weeks %s (cutoff %s) ===", stale_nums, cutoff)
     locked_tss_by_week = {wc["week_number"]: wc["locked_tss"] for wc in week_contexts if wc["locked_tss"]}
+    avail_by_week = {wc["week_number"]: wc["avail_hours"] for wc in week_contexts}
     skeleton = _call_skeleton_with_validation(client, prompt, label=f"regenerate weeks {stale_nums}",
-                                              locked_tss_by_week=locked_tss_by_week)
+                                              locked_tss_by_week=locked_tss_by_week,
+                                              avail_by_week=avail_by_week)
     log.info("regenerated %d weeks", len(skeleton["weeks"]))
     return skeleton
 

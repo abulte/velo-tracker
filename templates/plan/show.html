@@ -76,17 +76,31 @@
         {% set avail = avail_by_week.get(week.id, {}) %}
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
             {% for d in days %}
+            {% set day_date = week.week_start + timedelta(days=loop.index0) %}
             {% set day_sessions = sessions_by_day.get(d, []) %}
             {% set day_hours = avail.get(d, 0) %}
             {% set has_content = day_sessions or day_hours > 0 %}
-            <div class="min-h-16 flex flex-col {{ 'bg-base-200 rounded-lg p-2' if has_content else '' }}">
+            {% set day_has_done = day_sessions | selectattr('activity_id') | list | length > 0 %}
+            {% set day_has_skipped = day_date < today and (day_sessions | rejectattr('activity_id') | list | length > 0) %}
+            {% if day_has_done %}
+                {% set day_bg = "bg-success/20" %}
+            {% elif day_has_skipped %}
+                {% set day_bg = "bg-warning/20" %}
+            {% elif has_content %}
+                {% set day_bg = "bg-base-200" %}
+            {% else %}
+                {% set day_bg = "" %}
+            {% endif %}
+            <div class="min-h-16 flex flex-col {{ (day_bg ~ ' rounded-lg p-2') if day_bg else '' }}">
                 <div class="text-xs text-base-content/40 mb-1 capitalize">
-                    {{ d }}<span class="ml-1 text-base-content/30">{{ (week.week_start + timedelta(days=loop.index0)).day }}</span>
+                    {{ d }}<span class="ml-1 text-base-content/30">{{ day_date.day }}</span>
                 </div>
                 {% for s in day_sessions %}
                 {% set session_hours = s.duration_min / 60 %}
                 {% set over = day_hours > 0 and session_hours > day_hours %}
-                <a href="/plan/sessions/{{ s.id }}" class="relative flex flex-col gap-0.5 hover:bg-base-300 rounded p-1 -mx-1 transition-colors">
+                {% set is_skipped = day_date < today and not s.activity_id %}
+                {% set is_done = s.activity_id is not none %}
+                <a href="/plan/sessions/{{ s.id }}" class="relative flex flex-col gap-0.5 hover:bg-base-content/10 rounded p-1 -mx-1 transition-colors"{% if is_skipped %} title="Planned but not completed"{% elif is_done %} title="Completed"{% endif %}>
                     {% if s.steps %}<span class="absolute top-1 right-1 text-base-content/40 text-xs" title="Steps generated">≡</span>{% endif %}
                     {% if s.icu_compliance is not none %}<span class="absolute bottom-1 right-1 text-xs font-medium {{ 'text-success' if s.icu_compliance >= 80 else 'text-warning' if s.icu_compliance >= 50 else 'text-error' }}" title="ICU compliance">{{ s.icu_compliance | int }}%</span>
                     {% elif s.icu_event_id %}<span class="absolute bottom-1 right-1 text-success text-xs" title="Synced to intervals.icu">✓</span>{% endif %}
