@@ -20,59 +20,6 @@ class UserProfile(SQLModel, table=True):
     updated_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
 
 
-
-class Goal(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    title: str
-    goal_type: str  # "race" | "ftp" | "endurance"
-    target_date: datetime.date
-    target_ftp: Optional[int] = None  # watts, used when goal_type == "ftp"
-    notes: Optional[str] = None
-    is_active: bool = False
-    created_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
-
-
-class TrainingPlan(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    goal_id: int = Field(foreign_key="goal.id", index=True)
-    generated_at: datetime.datetime = Field(default_factory=lambda: datetime.datetime.now(datetime.UTC))
-    start_date: Optional[datetime.date] = Field(default=None)  # Monday of week 1
-    summary: str
-    rationale: Optional[str] = None  # full coaching analysis from turn 1
-    is_active: bool = False
-
-
-class TrainingWeek(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    plan_id: int = Field(foreign_key="trainingplan.id", index=True)
-    week_number: int  # 1-indexed
-    phase: str  # "base" | "build" | "peak" | "taper"
-    tss_target: int
-    description: str
-    week_start: Optional[datetime.date] = Field(default=None)  # Monday of that week, set at generation
-    stale: bool = Field(default=False)  # True when availability changed since generation
-    week_type: str = Field(default="a")  # "a" | "b" | "custom"
-    avail_override: Optional[dict[str, float]] = Field(default=None, sa_column=Column(JSON))  # per-day hours, only when week_type="custom"
-
-
-class TrainingSession(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    week_id: int = Field(foreign_key="trainingweek.id", index=True)
-    day_of_week: str  # "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
-    session_type: str  # "endurance" | "threshold" | "vo2max" | "recovery" | "long"
-    tss_target: int
-    duration_min: int
-    title: str
-    notes: Optional[str] = None
-    # Structured workout steps — generated on demand when session detail is first viewed.
-    # Each step: {type, duration_sec, power_low, power_high, repeat?, cadence?, description?}
-    steps: Optional[list[dict[str, object]]] = Field(default=None, sa_column=Column(JSON))
-    steps_tss: Optional[int] = None         # calculated TSS from generated steps
-    icu_event_id: Optional[str] = None      # intervals.icu calendar event id when pushed
-    icu_compliance: Optional[float] = None  # compliance % from paired ICU activity
-    activity_id: Optional[int] = Field(default=None, foreign_key="activity.id", index=True)
-
-
 class Route(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str

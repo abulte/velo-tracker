@@ -1,12 +1,9 @@
 """intervals.icu API sync — fetch athlete metrics and classify level."""
-import base64
 import datetime
 import json
 import logging
 
 import requests
-
-from fit_export import session_to_fit
 
 log = logging.getLogger(__name__)
 
@@ -93,94 +90,3 @@ def sync_athlete(athlete_id: str, api_key: str) -> dict:
 # Workout calendar event push
 # ---------------------------------------------------------------------------
 
-def push_workout_event(
-    athlete_id: str,
-    api_key: str,
-    session_date: datetime.date,
-    title: str,
-    steps: list[dict],
-    tss_target: int,
-    duration_min: int,
-    ftp: int,
-    activity_id: object = None,
-    old_icu_event_id: str | None = None,
-) -> str | None:
-    """
-    Create a workout calendar event in intervals.icu. Returns the event id, or None if skipped.
-
-    Skips if:
-    - session_date is in the past (already happened)
-    - activity_id is set (session already paired with an activity)
-
-    If pushing a new event and old_icu_event_id exists, deletes the old orphaned event first.
-    """
-    # Skip if session is in the past
-    if session_date < datetime.date.today():
-        log.info("icu push skipped: session %s is in the past", title)
-        return None
-
-    # Skip if session is already linked to an activity
-    if activity_id is not None:
-        log.info("icu push skipped: session %s already linked to activity", title)
-        return None
-
-    # Delete old orphaned event if one exists
-    if old_icu_event_id:
-        delete_workout_event(athlete_id, api_key, old_icu_event_id)
-
-    fit_b64 = base64.b64encode(session_to_fit(title, steps, ftp)).decode()
-    event = {
-        "category": "WORKOUT",
-        "start_date_local": f"{session_date.isoformat()}T00:00:00",
-        "name": title,
-        "file_contents_base64": fit_b64,
-        "filename": "workout.fit",
-        "type": "Ride",
-        "moving_time": duration_min * 60,
-        "icu_training_load": tss_target,
-    }
-    # POST /events takes a single EventEx object (not array — use /events/bulk for batch)
-    resp = _post(athlete_id, api_key, "events", event)
-    assert isinstance(resp, dict)
-    log.info("icu push: event %s → %s on %s", resp.get("id"), title, session_date)
-    return str(resp["id"])
-
-
-def delete_workout_event(athlete_id: str, api_key: str, event_id: str) -> None:
-    """Delete a workout calendar event from intervals.icu. Silently ignores 404."""
-    _del(athlete_id, api_key, f"events/{event_id}")
-    log.info("icu delete: event %s", event_id)
-
-
-# ---------------------------------------------------------------------------
-# Compliance sync
-# ---------------------------------------------------------------------------
-
-def fetch_compliance(
-    athlete_id: str,
-    api_key: str,
-    event_ids: set[str],
-    oldest: datetime.date,
-    newest: datetime.date,
-) -> dict[str, tuple[float, str]]:
-    """
-    Return a mapping of icu_event_id → (compliance%, garmin_activity_id) for activities
-    paired to one of the given event IDs.  Unpaired or missing activities are omitted.
-    """
-    activities = _get_list(
-        athlete_id, api_key, "activities",
-        oldest=oldest.isoformat(),
-        newest=newest.isoformat(),
-        fields="id,paired_event_id,compliance,external_id",
-    )
-    result: dict[str, tuple[float, str]] = {}
-    for act in activities:
-        paired = act.get("paired_event_id")
-        compliance = act.get("compliance")
-        garmin_id = act.get("external_id")  # external_id is the Garmin activity ID
-        if paired is not None and compliance is not None and garmin_id is not None:
-            eid = str(paired)
-            if eid in event_ids:
-                result[eid] = (float(compliance), str(garmin_id))
-                log.info("icu compliance: event %s → %.0f%% (activity %s)", eid, compliance, garmin_id)
-    return result

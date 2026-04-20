@@ -18,26 +18,6 @@ def activity(date: datetime.date, tss: float) -> SimpleNamespace:
     return SimpleNamespace(start_date=date, tss=tss)
 
 
-def goal(
-    title: str = "Race Goal",
-    goal_type: str = "race",
-    target_date: datetime.date = datetime.date(2025, 6, 1),
-    target_ftp: int | None = None,
-    notes: str | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(title=title, goal_type=goal_type, target_date=target_date, target_ftp=target_ftp, notes=notes)
-
-
-def profile(
-    ftp: int | None = 280,
-    weight_kg: float | None = 70.0,
-    athlete_level: str | None = "amateur",
-    peak_ctl: float | None = 75.0,
-    week_a: dict | None = None,
-    week_b: dict | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(ftp=ftp, weight_kg=weight_kg, athlete_level=athlete_level, peak_ctl=peak_ctl, week_a=week_a, week_b=week_b)
-
 
 def garmin_activity(
     activity_id: int = 1,
